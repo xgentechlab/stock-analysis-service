@@ -1,0 +1,6 @@
+steps:
+  - name: "gcr.io/cloud-builders/docker"
+    args:
+      ["build", "-t", "gcr.io/trading-agent-469211/stock-selection-api", "."]
+  - name: "gcr.io/cloud-builders/docker"
+    args: ["push", "gcr.io/trading-agent-469211/stock-selection-api"]

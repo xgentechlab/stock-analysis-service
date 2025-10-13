@@ -1,0 +1,74 @@
+# This file specifies files that are *not* uploaded to Google Cloud
+# using gcloud. It follows the same syntax as .gitignore, with the addition of
+# "#!include" directives (which insert the entries of the given .gitignore-style
+# file at that point).
+
+.gcloudignore
+# If you would like to upload your .git directory, .gitignore file or files
+# from your .gitignore file, remove the corresponding line below:
+.git
+.env
+
+
+# Python pycache:
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Distribution / packaging
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual environments
+venv/
+env/
+ENV/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Test files
+test_*.py
+*_test.py
+
+# Documentation
+*.md
+docs/
+
+# Docker files (needed for Cloud Run)
+# Dockerfile - KEEP THIS FOR CLOUD RUN
+# docker-compose.yml
+
+# Cloud Run specific files
+infra/
+cloudrun_deploy.sh
+
+# Service account key (needed for Cloud Run)
+# service-account-key.json - KEEP THIS FOR CLOUD RUN
+
+# Requirements for Cloud Run
+# requirements.txt - KEEP THIS FOR CLOUD RUN
