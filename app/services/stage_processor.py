@@ -282,6 +282,30 @@ class StageProcessor:
             
             # Mark stage as completed
             self.job_service.update_stage_status(job_id, stage_name, StageStatus.COMPLETED, result)
+
+            # After persisting final_scoring, route to recommendations or watchlist
+            if stage_name == "final_scoring":
+                try:
+                    # Extract inputs for routing
+                    from app.services.post_scoring_router import route_post_scoring
+                    synthesis = previous_results.get("verdict_synthesis", {})
+                    final_reco = synthesis.get("final_recommendation", {})
+                    action = final_reco.get("action")
+                    confidence = float(final_reco.get("confidence", 0.0))
+                    rationale = final_reco.get("rationale")
+                    final_score = float(result.get("final_score", 0.0))
+
+                    route_post_scoring(
+                        symbol=symbol,
+                        job_id=job_id,
+                        final_score=final_score,
+                        action=action or "",
+                        confidence=confidence,
+                        rationale=rationale,
+                        user_id="default_user",
+                    )
+                except Exception as routing_e:
+                    logger.warning(f"Post-final_scoring routing skipped for {symbol}: {routing_e}")
             
             duration = time.time() - start_time
             logger.info(f"Stage {stage_name} completed in {duration:.2f}s")
@@ -488,12 +512,20 @@ class StageProcessor:
     
     def _execute_final_scoring(self, symbol: str, previous_results: Dict[str, Any]) -> Dict[str, Any]:
         """Execute final scoring stage"""
-        combined_scoring = previous_results.get("combined_scoring", {})
-        multi_stage_ai = previous_results.get("multi_stage_ai_analysis", {})
+        # Correct sources: combined score from stage2, confidence from verdict synthesis
+        stage2 = previous_results.get("technical_and_combined_scoring", {}) or {}
+        combined_scoring = stage2.get("combined_scoring", {}) or {}
+        combined_score = float(combined_scoring.get("combined_score", 0.0))
+
+        verdict_stage = previous_results.get("verdict_synthesis", {}) or {}
+        final_reco = verdict_stage.get("final_recommendation", {}) or {}
+        ai_confidence = float(final_reco.get("confidence", 0.0))
         
-        combined_score = combined_scoring.get("combined_score", 0.0)
-        ai_verdict = multi_stage_ai.get("final_recommendation", {})
-        ai_confidence = ai_verdict.get("confidence", 0.0)
+        # Fallback: try final_decision if verdict_synthesis missing
+        if ai_confidence == 0.0:
+            fd = previous_results.get("final_decision", {}) or {}
+            if isinstance(fd, dict):
+                ai_confidence = float(fd.get("confidence", ai_confidence))
         
         # Calculate final blended score (50% combined, 30% AI confidence, 20% confidence blend)
         final_score = 0.5 * combined_score + 0.3 * ai_confidence + 0.2 * (combined_score * ai_confidence)
@@ -797,196 +829,22 @@ class StageProcessor:
         }
     
     def _copy_cached_analysis_to_job(self, job_id: str, cached_analysis: Dict[str, Any]) -> None:
-        """Copy cached analysis results to current job with proper stage mapping"""
+        """Copy cached analysis results to current job preserving the new 8-stage structure"""
         try:
             from datetime import datetime, timezone
             
-            # Update job status to completed
-            updates = {
-                "status": "completed",
-                "completed_at": datetime.now(timezone.utc).isoformat(),
-                "updated_at": datetime.now(timezone.utc).isoformat(),
-                "source": "cached",
-                "cost_saved": 0.10
-            }
-            
-            # Stage mapping from new 8-stage structure to old structure
-            STAGE_MAPPING = {
-                "data_collection_and_analysis": "data_collection",
-                "technical_and_combined_scoring": "enhanced_technical_scoring",
-                "forensic_analysis": "multi_stage_ai_analysis",
-                "module_selection": "multi_stage_ai_analysis", 
-                "risk_assessment": "multi_stage_ai_analysis",
-                "final_decision": "multi_stage_ai_analysis",
-                "verdict_synthesis": "multi_stage_ai_analysis",
-                "final_scoring": "final_scoring"
-            }
-            
-            # Process cached stages and map to old structure
+            # Get cached stages and preserve the new 8-stage structure
             cached_stages = cached_analysis.get("stages", {})
-            mapped_stages = {}
-            ai_analysis_data = {}
             
-            for stage_name, stage_data in cached_stages.items():
-                if stage_data.get("status") == "completed":
-                    stage_data_copy = stage_data.copy()
-                    
-                    # Map stage name to old structure
-                    old_stage_name = STAGE_MAPPING.get(stage_name, stage_name)
-                    
-                    # Special handling for AI analysis stages - consolidate them
-                    if old_stage_name == "multi_stage_ai_analysis":
-                        ai_analysis_data[stage_name] = stage_data.get("data", {})
-                        # Don't process individual AI stages yet, we'll consolidate them
-                        continue
-                    
-                    # Special handling for data_collection_and_analysis - split into multiple stages
-                    if stage_name == "data_collection_and_analysis":
-                        data = stage_data.get("data", {})
-                        
-                        # Create data_collection stage
-                        mapped_stages["data_collection"] = {
-                            "stage_name": "data_collection",
-                            "status": "completed",
-                            "data": {
-                                "ohlcv_days": data.get("ohlcv_days"),
-                                "current_price": data.get("current_price"),
-                                "data_quality": data.get("data_quality"),
-                                "summary": data.get("summary", {}),
-                                "raw_data": data.get("raw_data", {})
-                            },
-                            "started_at": stage_data.get("started_at"),
-                            "completed_at": stage_data.get("completed_at"),
-                            "duration_seconds": stage_data.get("duration_seconds")
-                        }
-                        
-                        # Create enhanced_technical_analysis stage
-                        technical_analysis = data.get("technical_analysis", {})
-                        mapped_stages["enhanced_technical_analysis"] = {
-                            "stage_name": "enhanced_technical_analysis",
-                            "status": "completed",
-                            "data": technical_analysis,
-                            "started_at": stage_data.get("started_at"),
-                            "completed_at": stage_data.get("completed_at"),
-                            "duration_seconds": stage_data.get("duration_seconds")
-                        }
-                        
-                        # Create enhanced_fundamental_analysis stage
-                        fundamental_analysis = data.get("fundamental_analysis", {})
-                        mapped_stages["enhanced_fundamental_analysis"] = {
-                            "stage_name": "enhanced_fundamental_analysis",
-                            "status": "completed",
-                            "data": fundamental_analysis,
-                            "started_at": stage_data.get("started_at"),
-                            "completed_at": stage_data.get("completed_at"),
-                            "duration_seconds": stage_data.get("duration_seconds")
-                        }
-                        
-                        # Create combined_scoring stage
-                        mapped_stages["combined_scoring"] = {
-                            "stage_name": "combined_scoring",
-                            "status": "completed",
-                            "data": {
-                                "technical_score": technical_analysis.get("technical_indicators", {}),
-                                "fundamental_score": fundamental_analysis.get("fundamental_score", {}),
-                                "combined_score": 0.0  # Will be calculated
-                            },
-                            "started_at": stage_data.get("started_at"),
-                            "completed_at": stage_data.get("completed_at"),
-                            "duration_seconds": stage_data.get("duration_seconds")
-                        }
-                        
-                        # Create enhanced_filtering stage
-                        mapped_stages["enhanced_filtering"] = {
-                            "stage_name": "enhanced_filtering",
-                            "status": "completed",
-                            "data": {
-                                "fundamental_ok": True,
-                                "passes_enhanced_filters": True,
-                                "min_confidence": 0.6
-                            },
-                            "started_at": stage_data.get("started_at"),
-                            "completed_at": stage_data.get("completed_at"),
-                            "duration_seconds": stage_data.get("duration_seconds")
-                        }
-                        
-                        continue
-                    
-                    # Special handling for technical_and_combined_scoring - split into technical analysis and scoring
-                    if stage_name == "technical_and_combined_scoring":
-                        data = stage_data.get("data", {})
-                        
-                        # Create enhanced_technical_analysis stage
-                        technical_scoring = data.get("technical_scoring", {})
-                        mapped_stages["enhanced_technical_analysis"] = {
-                            "stage_name": "enhanced_technical_analysis",
-                            "status": "completed",
-                            "data": {
-                                "indicators_available": len(technical_scoring.get("technical_indicators", {})),
-                                "technical_indicators": technical_scoring.get("technical_indicators", {}),
-                                "status": "success"
-                            },
-                            "started_at": stage_data.get("started_at"),
-                            "completed_at": stage_data.get("completed_at"),
-                            "duration_seconds": stage_data.get("duration_seconds")
-                        }
-                        
-                        # Create enhanced_technical_scoring stage
-                        mapped_stages["enhanced_technical_scoring"] = {
-                            "stage_name": "enhanced_technical_scoring",
-                            "status": "completed",
-                            "data": technical_scoring,
-                            "started_at": stage_data.get("started_at"),
-                            "completed_at": stage_data.get("completed_at"),
-                            "duration_seconds": stage_data.get("duration_seconds")
-                        }
-                        
-                        continue
-                    
-                    # Regular stage mapping
-                    mapped_stages[old_stage_name] = {
-                        "stage_name": old_stage_name,
-                        "status": "completed",
-                        "data": stage_data.get("data", {}),
-                        "started_at": stage_data.get("started_at"),
-                        "completed_at": stage_data.get("completed_at"),
-                        "duration_seconds": stage_data.get("duration_seconds")
-                    }
-            
-            # Consolidate AI analysis stages into multi_stage_ai_analysis
-            if ai_analysis_data:
-                consolidated_ai_data = {
-                    "forensic_analysis": ai_analysis_data.get("forensic_analysis", {}),
-                    "module_selection": ai_analysis_data.get("module_selection", {}),
-                    "risk_assessment": ai_analysis_data.get("risk_assessment", {}),
-                    "final_decision": ai_analysis_data.get("final_decision", {}),
-                    "verdict_synthesis": ai_analysis_data.get("verdict_synthesis", {}),
-                    "analysis_stages": ai_analysis_data
-                }
-                
-                # Get the most recent AI stage for timestamps
-                latest_ai_stage = max(ai_analysis_data.values(), 
-                                    key=lambda x: x.get("completed_at", ""), 
-                                    default={})
-                
-                mapped_stages["multi_stage_ai_analysis"] = {
-                    "stage_name": "multi_stage_ai_analysis",
-                    "status": "completed",
-                    "data": consolidated_ai_data,
-                    "started_at": latest_ai_stage.get("started_at"),
-                    "completed_at": latest_ai_stage.get("completed_at"),
-                    "duration_seconds": latest_ai_stage.get("duration_seconds")
-                }
-            
-            # Define old stage order for status API consistency
-            old_stage_order = [
-                "data_collection",
-                "enhanced_technical_analysis", 
-                "enhanced_technical_scoring",
-                "enhanced_fundamental_analysis",
-                "combined_scoring",
-                "enhanced_filtering",
-                "multi_stage_ai_analysis",
+            # Define the new 8-stage order for consistency
+            new_stage_order = [
+                "data_collection_and_analysis",
+                "technical_and_combined_scoring", 
+                "forensic_analysis",
+                "module_selection",
+                "risk_assessment",
+                "final_decision",
+                "verdict_synthesis",
                 "final_scoring"
             ]
             
@@ -996,21 +854,21 @@ class StageProcessor:
                 "started_at": datetime.now(timezone.utc).isoformat(),
                 "updated_at": datetime.now(timezone.utc).isoformat(),
                 "source": "cached",
-                "stage_order": old_stage_order
+                "stage_order": new_stage_order
             }
             self.job_service.db.update_job(job_id, initial_updates)
             
             # Update stages incrementally and update progress after each stage
-            # Process stages in the correct order
-            total_stages = len(mapped_stages)
+            total_stages = len(cached_stages)
             completed_count = 0
             
             # Process stages in the correct order
-            for stage_name in old_stage_order:
-                if stage_name not in mapped_stages:
+            for stage_name in new_stage_order:
+                if stage_name not in cached_stages:
                     continue
                     
-                stage_data = mapped_stages[stage_name]
+                stage_data = cached_stages[stage_name]
+                
                 # Update individual stage
                 self.job_service.update_stage_status(
                     job_id, 
@@ -1018,6 +876,41 @@ class StageProcessor:
                     StageStatus.COMPLETED, 
                     data=stage_data.get("data")
                 )
+
+                # If replaying final_scoring from cache, also run routing
+                if stage_name == "final_scoring":
+                    try:
+                        from app.services.post_scoring_router import route_post_scoring
+                        # Extract from cached stages: final score and prior verdict synthesis data
+                        final_scoring_data = stage_data.get("data", {}) or {}
+                        final_score = float(final_scoring_data.get("final_score", 0.0))
+                        if final_score == 0.0:
+                            # Fallback compute from combined_scoring + verdict confidence if available
+                            stage2 = cached_stages.get("technical_and_combined_scoring", {})
+                            cs = ((stage2 or {}).get("data") or {}).get("combined_scoring", {})
+                            combined_score = float(cs.get("combined_score", 0.0))
+                            verdict_stage = cached_stages.get("verdict_synthesis", {})
+                            final_reco_fallback = ((verdict_stage or {}).get("data") or {}).get("final_recommendation", {})
+                            ai_conf = float(final_reco_fallback.get("confidence", 0.0))
+                            final_score = 0.5 * combined_score + 0.3 * ai_conf + 0.2 * (combined_score * ai_conf)
+
+                        verdict_stage = cached_stages.get("verdict_synthesis", {})
+                        final_reco = (verdict_stage.get("data", {}) or {}).get("final_recommendation", {})
+                        action = final_reco.get("action") or ""
+                        confidence = float(final_reco.get("confidence", 0.0))
+                        rationale = final_reco.get("rationale")
+
+                        route_post_scoring(
+                            symbol=cached_analysis.get("symbol", ""),
+                            job_id=job_id,
+                            final_score=final_score,
+                            action=action,
+                            confidence=confidence,
+                            rationale=rationale,
+                            user_id="default_user",
+                        )
+                    except Exception as routing_e:
+                        logger.warning(f"Cached replay routing skipped for {job_id}: {routing_e}")
                 
                 completed_count += 1
                 percentage = int((completed_count / total_stages) * 100)
@@ -1045,20 +938,20 @@ class StageProcessor:
                 time.sleep(0.1)
             
             # Final update with complete stage structure for consistency
-            old_stage_structure = {}
-            for stage_name, stage_data in mapped_stages.items():
-                old_stage_structure[stage_name] = {
+            final_stage_structure = {}
+            for stage_name, stage_data in cached_stages.items():
+                final_stage_structure[stage_name] = {
                     "stage_name": stage_name,
                     "status": "completed",
                     "started_at": stage_data.get("started_at"),
                     "completed_at": stage_data.get("completed_at"),
                     "data": stage_data.get("data"),
                     "duration_seconds": stage_data.get("duration_seconds"),
-                    "dependencies": []  # Add empty dependencies for old structure
+                    "dependencies": []  # Add empty dependencies for consistency
                 }
             
             final_updates = {
-                "stages": old_stage_structure,
+                "stages": final_stage_structure,
                 "updated_at": datetime.now(timezone.utc).isoformat()
             }
             
@@ -1066,8 +959,8 @@ class StageProcessor:
             
             if success:
                 logger.info(f"✅ Copied cached analysis to job {job_id} with incremental progress - saved $0.10")
-                logger.info(f"   Updated stages: {list(old_stage_structure.keys())}")
-                logger.info(f"   Stage order: {old_stage_order}")
+                logger.info(f"   Updated stages: {list(final_stage_structure.keys())}")
+                logger.info(f"   Stage order: {new_stage_order}")
             else:
                 logger.error(f"❌ Failed to update job {job_id} with cached analysis")
             

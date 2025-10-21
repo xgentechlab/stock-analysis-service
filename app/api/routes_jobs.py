@@ -5,6 +5,8 @@ import logging
 from typing import List, Optional
 from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import JSONResponse
+from google.cloud.firestore_v1.base_query import FieldFilter
+from google.cloud import firestore
 
 from app.models.schemas import (
     ApiResponse, JobCreateRequest, JobStatusResponse, StageDataResponse, 
@@ -13,6 +15,7 @@ from app.models.schemas import (
 from app.services.job_service import job_service
 from app.services.stage_config import stage_config_service
 from app.services.stage_processor import stage_processor
+from app.config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -154,30 +157,32 @@ async def get_complete_analysis(job_id: str):
         # Compile complete analysis from all stages
         stages = job_data.get("stages", {})
         
-        # Build complete analysis structure similar to the original response
+        # Build complete analysis structure using the new 8-stage structure
         complete_analysis = {
             "symbol": job_data["symbol"],
             "stages": {
-                "data_collection": stages.get("data_collection", {}).get("data", {}),
-                "enhanced_technical_analysis": stages.get("enhanced_technical_analysis", {}).get("data", {}),
-                "enhanced_technical_scoring": stages.get("enhanced_technical_scoring", {}).get("data", {}),
-                "enhanced_fundamental_analysis": stages.get("enhanced_fundamental_analysis", {}).get("data", {}),
-                "combined_scoring": stages.get("combined_scoring", {}).get("data", {}),
-                "enhanced_filtering": stages.get("enhanced_filtering", {}).get("data", {}),
-                "multi_stage_ai_analysis": stages.get("multi_stage_ai_analysis", {}).get("data", {}),
+                "data_collection_and_analysis": stages.get("data_collection_and_analysis", {}).get("data", {}),
+                "technical_and_combined_scoring": stages.get("technical_and_combined_scoring", {}).get("data", {}),
+                "forensic_analysis": stages.get("forensic_analysis", {}).get("data", {}),
+                "module_selection": stages.get("module_selection", {}).get("data", {}),
+                "risk_assessment": stages.get("risk_assessment", {}).get("data", {}),
+                "final_decision": stages.get("final_decision", {}).get("data", {}),
+                "verdict_synthesis": stages.get("verdict_synthesis", {}).get("data", {}),
                 "final_scoring": stages.get("final_scoring", {}).get("data", {})
             },
             "summary": {
-                "fundamental_ok": stages.get("enhanced_fundamental_analysis", {}).get("data", {}).get("fundamental_score", {}).get("final_score", 0) >= 0.5,
-                "enhanced_technical_ok": bool(stages.get("enhanced_technical_analysis", {}).get("data")),
-                "enhanced_fundamentals_ok": bool(stages.get("enhanced_fundamental_analysis", {}).get("data", {}).get("enhanced_fundamentals")),
-                "enhanced_filters_ok": stages.get("enhanced_filtering", {}).get("data", {}).get("passes_enhanced_filters", False),
-                "multi_stage_ai_ok": bool(stages.get("multi_stage_ai_analysis", {}).get("data")),
-                "ai_verdict_ok": bool(stages.get("multi_stage_ai_analysis", {}).get("data", {}).get("final_recommendation")),
+                "data_collection_ok": bool(stages.get("data_collection_and_analysis", {}).get("data")),
+                "technical_scoring_ok": bool(stages.get("technical_and_combined_scoring", {}).get("data")),
+                "forensic_analysis_ok": bool(stages.get("forensic_analysis", {}).get("data")),
+                "module_selection_ok": bool(stages.get("module_selection", {}).get("data")),
+                "risk_assessment_ok": bool(stages.get("risk_assessment", {}).get("data")),
+                "final_decision_ok": bool(stages.get("final_decision", {}).get("data")),
+                "verdict_synthesis_ok": bool(stages.get("verdict_synthesis", {}).get("data")),
+                "final_scoring_ok": bool(stages.get("final_scoring", {}).get("data")),
                 "overall_success": job_data.get("status") == "completed",
-                "data_points": stages.get("data_collection", {}).get("data", {}).get("ohlcv_days", 0),
+                "data_points": stages.get("data_collection_and_analysis", {}).get("data", {}).get("ohlcv_days", 0),
                 "enhanced_analysis": True,
-                "scoring_method": "enhanced_technical_fundamental_multi_stage_v4"
+                "scoring_method": "enhanced_8_stage_analysis_v1"
             }
         }
         
@@ -296,17 +301,95 @@ async def get_analysis_by_symbol(
     try:
         from app.db.firestore_client import firestore_client
         
-        logger.info(f"Getting analysis for {symbol} (type: {analysis_type})")
+        logger.info(f"🔍 ANALYSIS REQUEST: Getting analysis for {symbol} (type: {analysis_type}, check_freshness: {check_freshness})")
         
-        # Get latest analysis
+        # Check Firestore connection first
+        if not firestore_client.db:
+            logger.error(f"❌ FIRESTORE ERROR: Firestore client not initialized for {symbol}")
+            return ApiResponse(
+                ok=False, 
+                error="Database connection not available",
+                data={"symbol": symbol, "analysis_type": analysis_type}
+            )
+        
+        logger.info(f"✅ FIRESTORE: Connected to project {settings.firestore_project_id}, database {settings.firestore_database_id}")
+        
+        # First, let's check what jobs exist for this symbol
+        logger.info(f"🔍 DEBUGGING: Checking all jobs for symbol {symbol}")
+        try:
+            all_jobs_query = (firestore_client.db.collection("jobs")
+                            .where(filter=FieldFilter("symbol", "==", symbol))
+                            .order_by("created_at", direction=firestore.Query.DESCENDING)
+                            .limit(10))
+            
+            all_jobs = list(all_jobs_query.stream())
+            logger.info(f"📊 DEBUGGING: Found {len(all_jobs)} total jobs for {symbol}")
+            
+            for i, job_doc in enumerate(all_jobs):
+                job_data = job_doc.to_dict()
+                job_id = job_data.get('job_id', 'unknown')
+                status = job_data.get('status', 'unknown')
+                created_at = job_data.get('created_at', 'unknown')
+                job_analysis_type = job_data.get('analysis_type', 'unknown')
+                stages_count = len(job_data.get('stages', {}))
+                
+                logger.info(f"  Job {i+1}: ID={job_id}, Status={status}, Type={job_analysis_type}, Created={created_at}, Stages={stages_count}")
+                
+                # Check if this job has completed stages
+                stages = job_data.get('stages', {})
+                completed_stages = [name for name, stage in stages.items() if stage.get('status') == 'completed']
+                logger.info(f"    Completed stages: {completed_stages}")
+                
+        except Exception as debug_e:
+            logger.error(f"❌ DEBUGGING ERROR: Failed to query jobs for {symbol}: {debug_e}")
+        
+        # Now try to get the latest analysis
+        logger.info(f"🔍 ANALYSIS: Attempting to get latest analysis for {symbol} (type: {analysis_type})")
         analysis = firestore_client.get_latest_analysis_by_symbol(symbol, analysis_type)
         
         if not analysis:
+            logger.warning(f"⚠️  ANALYSIS NOT FOUND: No completed analysis found for {symbol} (type: {analysis_type})")
+            
+            # Let's also check if there are any jobs with different statuses
+            try:
+                pending_jobs_query = (firestore_client.db.collection("jobs")
+                                    .where(filter=FieldFilter("symbol", "==", symbol))
+                                    .where(filter=FieldFilter("analysis_type", "==", analysis_type))
+                                    .where(filter=FieldFilter("status", "==", "processing")))
+                
+                pending_jobs = list(pending_jobs_query.stream())
+                if pending_jobs:
+                    logger.info(f"📋 FOUND PENDING: {len(pending_jobs)} processing jobs for {symbol}")
+                
+                failed_jobs_query = (firestore_client.db.collection("jobs")
+                                   .where(filter=FieldFilter("symbol", "==", symbol))
+                                   .where(filter=FieldFilter("analysis_type", "==", analysis_type))
+                                   .where(filter=FieldFilter("status", "==", "failed")))
+                
+                failed_jobs = list(failed_jobs_query.stream())
+                if failed_jobs:
+                    logger.info(f"❌ FOUND FAILED: {len(failed_jobs)} failed jobs for {symbol}")
+                    
+            except Exception as status_e:
+                logger.error(f"❌ STATUS CHECK ERROR: Failed to check job statuses: {status_e}")
+            
             return ApiResponse(
                 ok=False, 
                 error=f"No completed analysis found for {symbol}",
-                data={"symbol": symbol, "analysis_type": analysis_type}
+                data={
+                    "symbol": symbol, 
+                    "analysis_type": analysis_type,
+                    "debug_info": {
+                        "total_jobs_found": len(all_jobs) if 'all_jobs' in locals() else 0,
+                        "firestore_connected": firestore_client.db is not None,
+                        "project_id": settings.firestore_project_id,
+                        "database_id": settings.firestore_database_id
+                    }
+                }
             )
+        
+        logger.info(f"✅ ANALYSIS FOUND: Retrieved analysis for {symbol}")
+        logger.info(f"📊 ANALYSIS DATA: Analysis has {len(analysis.get('stages', {}))} stages")
         
         response_data = {
             "symbol": symbol,
@@ -317,21 +400,30 @@ async def get_analysis_by_symbol(
         
         # Check freshness if requested
         if check_freshness:
+            logger.info(f"🕒 FRESHNESS: Checking freshness for {symbol}")
             freshness_check = firestore_client.is_analysis_fresh_for_investment(analysis)
             response_data["freshness"] = freshness_check
+            
+            logger.info(f"📅 FRESHNESS RESULT: {freshness_check}")
             
             # Add cost savings info
             if freshness_check["is_fresh"]:
                 response_data["cost_saved"] = 0.10  # $0.10 saved by using cache
                 response_data["recommendation"] = "use_cached"
+                logger.info(f"💰 COST SAVINGS: $0.10 saved using cached analysis for {symbol}")
             else:
                 response_data["cost_saved"] = 0.00
                 response_data["recommendation"] = "refresh_needed"
+                logger.info(f"🔄 REFRESH NEEDED: Analysis for {symbol} is stale")
         
+        logger.info(f"✅ SUCCESS: Returning analysis data for {symbol}")
         return ApiResponse(ok=True, data=response_data)
         
     except Exception as e:
-        logger.error(f"Failed to get analysis for {symbol}: {e}")
+        logger.error(f"❌ CRITICAL ERROR: Failed to get analysis for {symbol}: {e}")
+        logger.error(f"❌ ERROR DETAILS: {type(e).__name__}: {str(e)}")
+        import traceback
+        logger.error(f"❌ STACK TRACE: {traceback.format_exc()}")
         return ApiResponse(ok=False, error=str(e))
 
 @router.get("/analysis/{symbol}/history", response_model=ApiResponse)

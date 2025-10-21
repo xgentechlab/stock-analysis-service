@@ -184,3 +184,157 @@ class TrackerSummary(BaseModel):
     updated_count: int
     positions_checked: int
     run_duration_seconds: float
+
+# User Management Models
+class RecommendationStatus(str, Enum):
+    PENDING = "pending"
+    APPROVED = "approved"
+    REJECTED = "rejected"
+
+class RecommendationPriority(str, Enum):
+    LOW = "low"
+    MEDIUM = "medium"
+    HIGH = "high"
+    URGENT = "urgent"
+
+class RecommendationAction(str, Enum):
+    BUY = "buy"
+    SELL = "sell"
+    HOLD = "hold"
+
+class DecisionType(str, Enum):
+    APPROVED = "approved"
+    REJECTED = "rejected"
+
+class PortfolioStatus(str, Enum):
+    ACTIVE = "active"
+    CLOSED = "closed"
+
+class SuggestionStatus(str, Enum):
+    PENDING = "pending"
+    ACCEPTED = "accepted"
+    REJECTED = "rejected"
+    IMPLEMENTED = "implemented"
+
+# Recommendation Model
+class Recommendation(BaseModel):
+    id: str
+    user_id: str
+    symbol: str
+    action: RecommendationAction
+    reason: str
+    priority: RecommendationPriority = RecommendationPriority.MEDIUM
+    created_at: str
+    status: RecommendationStatus = RecommendationStatus.PENDING
+
+class RecommendationCreateRequest(BaseModel):
+    user_id: str
+    symbol: str
+    action: RecommendationAction
+    reason: str
+    priority: RecommendationPriority = RecommendationPriority.MEDIUM
+
+class RecommendationUpdateRequest(BaseModel):
+    status: Optional[RecommendationStatus] = None
+    reason: Optional[str] = None
+    priority: Optional[RecommendationPriority] = None
+
+# Watchlist Model
+class WatchlistItem(BaseModel):
+    user_id: str
+    symbol: str
+    added_at: str
+
+class WatchlistAddRequest(BaseModel):
+    user_id: str
+    symbol: str
+
+# Portfolio Model (Enhanced version of existing Position)
+class PortfolioItem(BaseModel):
+    id: str
+    user_id: str
+    symbol: str
+    quantity: int
+    avg_price: float
+    entry_date: str
+    current_value: Optional[float] = None
+    pnl: Optional[float] = None
+    status: PortfolioStatus = PortfolioStatus.ACTIVE
+
+class PortfolioCreateRequest(BaseModel):
+    user_id: str
+    symbol: str
+    quantity: int
+    avg_price: float
+    entry_date: Optional[str] = None
+
+class PortfolioUpdateRequest(BaseModel):
+    quantity: Optional[int] = None
+    current_value: Optional[float] = None
+    pnl: Optional[float] = None
+    status: Optional[PortfolioStatus] = None
+
+# User Decision Model
+class UserDecisionRecord(BaseModel):
+    id: str
+    recommendation_id: str
+    decision: DecisionType
+    decided_at: str
+
+class UserDecisionCreateRequest(BaseModel):
+    recommendation_id: str
+    decision: DecisionType
+
+# Portfolio Suggestion Model
+class PortfolioSuggestion(BaseModel):
+    id: str
+    user_id: str
+    remove_symbol: Optional[str] = None
+    add_symbol: Optional[str] = None
+    reason: str
+    created_at: str
+    status: SuggestionStatus = SuggestionStatus.PENDING
+
+class PortfolioSuggestionCreateRequest(BaseModel):
+    user_id: str
+    remove_symbol: Optional[str] = None
+    add_symbol: Optional[str] = None
+    reason: str
+
+class PortfolioSuggestionUpdateRequest(BaseModel):
+    status: SuggestionStatus
+
+# Response Models
+class RecommendationsListResponse(BaseModel):
+    recommendations: List[Recommendation]
+    total: int
+    cursor: Optional[str] = None
+
+class WatchlistListResponse(BaseModel):
+    watchlist: List[WatchlistItem]
+    total: int
+
+class PortfolioListResponse(BaseModel):
+    portfolio: List[PortfolioItem]
+    total: int
+
+class UserDecisionsListResponse(BaseModel):
+    decisions: List[UserDecisionRecord]
+    total: int
+
+class PortfolioSuggestionsListResponse(BaseModel):
+    suggestions: List[PortfolioSuggestion]
+    total: int
+
+# News Intelligence Models
+class NewsworthyStock(BaseModel):
+    symbol: str
+    name: Optional[str] = None
+    mentions: int
+    sentiment: float = Field(ge=-1.0, le=1.0)
+    sources: List[str] = []
+    excerpt: Optional[str] = None
+
+class NewsIntelligenceResponse(BaseModel):
+    stocks: List[NewsworthyStock]
+    total: int

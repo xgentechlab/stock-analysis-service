@@ -72,3 +72,4 @@ cloudrun_deploy.sh
 
 # Requirements for Cloud Run
 # requirements.txt - KEEP THIS FOR CLOUD RUN
+service-account-key.json

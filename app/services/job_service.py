@@ -86,45 +86,17 @@ class JobService:
             completed_stages = [name for name, stage in stages.items() 
                               if stage.get("status") == StageStatus.COMPLETED.value]
             
-            # Debug logging for cached jobs
-            if job_data.get("source") == "cached":
-                logger.info(f"🔍 Debug cached job {job_id}:")
-                logger.info(f"   Stages: {list(stages.keys())}")
-                logger.info(f"   Stage statuses: {[(name, stage.get('status')) for name, stage in stages.items()]}")
-                logger.info(f"   Stage order: {stage_order}")
-                logger.info(f"   Completed stages before sort: {completed_stages}")
+            # Debug logging for job processing
+            logger.info(f"🔍 Debug job {job_id} (source: {job_data.get('source', 'fresh')}):")
+            logger.info(f"   Stages: {list(stages.keys())}")
+            logger.info(f"   Stage statuses: {[(name, stage.get('status')) for name, stage in stages.items()]}")
+            logger.info(f"   Stage order: {stage_order}")
+            logger.info(f"   Completed stages before sort: {completed_stages}")
             
-            # For cached jobs, return all completed stages (both old and new format)
-            # For regular jobs, sort according to stage order
-            if job_data.get("source") == "cached":
-                # For cached jobs, we want to show the actual stage names from the cached analysis
-                # Get the original cached analysis to show the real stage names
-                from app.db.firestore_client import firestore_client
-                symbol = job_data.get("symbol")
-                analysis_type = job_data.get("analysis_type")
-                
-                logger.info(f"   🔍 Checking cached analysis for {symbol} ({analysis_type})")
-                
-                if symbol and analysis_type:
-                    cached_analysis = firestore_client.get_latest_analysis_by_symbol(symbol, analysis_type)
-                    if cached_analysis and "stages" in cached_analysis:
-                        # Get the original stage names from the cached analysis
-                        original_stages = list(cached_analysis["stages"].keys())
-                        # For cached jobs, show the original stage names
-                        completed_stages = original_stages
-                        logger.info(f"   ✅ Found cached analysis with stages: {original_stages}")
-                        logger.info(f"   ✅ Using original stages as completed: {completed_stages}")
-                    else:
-                        logger.info(f"   ❌ No cached analysis found or no stages")
-                else:
-                    logger.info(f"   ❌ Missing symbol or analysis_type")
-            else:
-                # Sort completed stages according to stage order for regular jobs
-                completed_stages = [stage for stage in stage_order if stage in completed_stages]
+            # Sort completed stages according to stage order for both cached and regular jobs
+            completed_stages = [stage for stage in stage_order if stage in completed_stages]
             
-            # Debug logging for cached jobs
-            if job_data.get("source") == "cached":
-                logger.info(f"   Completed stages after sort: {completed_stages}")
+            logger.info(f"   Completed stages after sort: {completed_stages}")
             
             processing_stage = next((name for name, stage in stages.items() 
                                    if stage.get("status") == StageStatus.PROCESSING.value), None)

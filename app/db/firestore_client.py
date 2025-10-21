@@ -286,37 +286,68 @@ class FirestoreClient:
         """Get most recent completed analysis for a symbol with complete data"""
         try:
             self._check_connection()
+            logger.info(f"🔍 FIRESTORE QUERY: Looking for completed analysis for {symbol} (type: {analysis_type})")
+            
             query = (self.db.collection("jobs")
                     .where(filter=FieldFilter("symbol", "==", symbol))
                     .where(filter=FieldFilter("analysis_type", "==", analysis_type))
                     .where(filter=FieldFilter("status", "==", "completed"))
                     .order_by("created_at", direction=firestore.Query.DESCENDING))
             
+            logger.info(f"📊 FIRESTORE QUERY: Executing query for {symbol}")
             docs = list(query.stream())
+            logger.info(f"📊 FIRESTORE RESULT: Found {len(docs)} completed jobs for {symbol}")
+            
             if not docs:
-                logger.info(f"No completed analysis found for {symbol} (type: {analysis_type})")
+                logger.warning(f"⚠️  FIRESTORE: No completed analysis found for {symbol} (type: {analysis_type})")
+                
+                # Let's check what statuses actually exist for this symbol
+                logger.info(f"🔍 DEBUGGING: Checking all statuses for {symbol}")
+                all_statuses_query = (self.db.collection("jobs")
+                                    .where(filter=FieldFilter("symbol", "==", symbol))
+                                    .where(filter=FieldFilter("analysis_type", "==", analysis_type)))
+                
+                all_statuses_docs = list(all_statuses_query.stream())
+                logger.info(f"📊 DEBUGGING: Found {len(all_statuses_docs)} total jobs for {symbol} (type: {analysis_type})")
+                
+                statuses = {}
+                for doc in all_statuses_docs:
+                    job_data = doc.to_dict()
+                    status = job_data.get('status', 'unknown')
+                    statuses[status] = statuses.get(status, 0) + 1
+                
+                logger.info(f"📊 DEBUGGING: Status breakdown for {symbol}: {statuses}")
                 return None
             
             # Find the analysis with the most complete data
             best_analysis = None
             best_data_score = 0
             
-            for doc in docs:
+            logger.info(f"🔍 FIRESTORE: Analyzing {len(docs)} completed jobs for {symbol}")
+            
+            for i, doc in enumerate(docs):
                 analysis = doc.to_dict()
                 stages = analysis.get("stages", {})
+                job_id = analysis.get('job_id', 'unknown')
+                created_at = analysis.get('created_at', 'unknown')
                 
                 # Calculate data completeness score
                 data_score = 0
+                completed_stages = 0
                 for stage_name, stage_data in stages.items():
+                    stage_status = stage_data.get('status', 'unknown')
                     stage_data_content = stage_data.get("data", {})
                     if stage_data_content:  # If stage has data
                         data_score += len(stage_data_content)
+                    if stage_status == 'completed':
+                        completed_stages += 1
                 
-                logger.info(f"Analysis {analysis.get('created_at')} has data score: {data_score}")
+                logger.info(f"  Job {i+1}: ID={job_id}, Created={created_at}, Data Score={data_score}, Completed Stages={completed_stages}")
                 
                 if data_score > best_data_score:
                     best_data_score = data_score
                     best_analysis = analysis
+                    logger.info(f"  ✅ NEW BEST: Job {job_id} is now the best analysis (score: {data_score})")
             
             if best_analysis:
                 logger.info(f"Found best analysis for {symbol} (type: {analysis_type}) - created: {best_analysis.get('created_at')}, data score: {best_data_score}")
@@ -549,6 +580,345 @@ class FirestoreClient:
             return len(docs) > 0
         except Exception as e:
             logger.error(f"Failed to check signal exists: {e}")
+            return False
+
+    # ===== USER MANAGEMENT COLLECTIONS =====
+    
+    # Recommendations collection methods
+    def create_recommendation(self, recommendation_data: Dict[str, Any]) -> str:
+        """Create a new recommendation"""
+        try:
+            self._check_connection()
+            recommendation_id = str(uuid.uuid4())
+            recommendation_data["id"] = recommendation_id
+            recommendation_data["created_at"] = datetime.now(timezone.utc).isoformat()
+            
+            doc_ref = self.db.collection("recommendations").document(recommendation_id)
+            doc_ref.set(recommendation_data)
+            
+            logger.info(f"Created recommendation: {recommendation_id} for user: {recommendation_data.get('user_id')}")
+            return recommendation_id
+        except Exception as e:
+            logger.error(f"Failed to create recommendation: {e}")
+            raise
+
+    def get_recommendation(self, recommendation_id: str) -> Optional[Dict[str, Any]]:
+        """Get a recommendation by ID"""
+        try:
+            self._check_connection()
+            doc_ref = self.db.collection("recommendations").document(recommendation_id)
+            doc = doc_ref.get()
+            
+            if doc.exists:
+                return doc.to_dict()
+            return None
+        except Exception as e:
+            logger.error(f"Failed to get recommendation {recommendation_id}: {e}")
+            raise
+
+    def update_recommendation(self, recommendation_id: str, updates: Dict[str, Any]) -> bool:
+        """Update a recommendation"""
+        try:
+            self._check_connection()
+            doc_ref = self.db.collection("recommendations").document(recommendation_id)
+            doc_ref.update(updates)
+            
+            logger.info(f"Updated recommendation: {recommendation_id}")
+            return True
+        except Exception as e:
+            logger.error(f"Failed to update recommendation {recommendation_id}: {e}")
+            return False
+
+    def list_recommendations(self, user_id: Optional[str] = None, status: Optional[str] = None, 
+                           limit: int = 50, cursor: Optional[str] = None) -> Dict[str, Any]:
+        """List recommendations with optional filtering"""
+        try:
+            self._check_connection()
+            query = self.db.collection("recommendations")
+            if user_id:
+                query = query.where(filter=FieldFilter("user_id", "==", user_id))
+            if status:
+                query = query.where(filter=FieldFilter("status", "==", status))
+            # Avoid composite index requirement: stream then sort in memory
+            docs = list(query.stream())
+            recommendations = [doc.to_dict() for doc in docs]
+            recommendations.sort(key=lambda x: x.get("created_at", ""), reverse=True)
+            recommendations = recommendations[:limit]
+            
+            return {
+                "recommendations": recommendations,
+                "total": len(recommendations),
+                "cursor": None  # Simplified - no cursor for now
+            }
+        except Exception as e:
+            logger.error(f"Failed to list recommendations: {e}")
+            raise
+
+    def delete_recommendation(self, recommendation_id: str) -> bool:
+        """Delete a recommendation"""
+        try:
+            self._check_connection()
+            doc_ref = self.db.collection("recommendations").document(recommendation_id)
+            doc_ref.delete()
+            
+            logger.info(f"Deleted recommendation: {recommendation_id}")
+            return True
+        except Exception as e:
+            logger.error(f"Failed to delete recommendation {recommendation_id}: {e}")
+            return False
+
+    # Watchlist collection methods
+    def add_to_watchlist(self, watchlist_data: Dict[str, Any]) -> str:
+        """Add a symbol to user's watchlist"""
+        try:
+            self._check_connection()
+            watchlist_data["added_at"] = datetime.now(timezone.utc).isoformat()
+            
+            # Use composite key: user_id + symbol
+            doc_id = f"{watchlist_data['user_id']}_{watchlist_data['symbol']}"
+            doc_ref = self.db.collection("watchlist").document(doc_id)
+            doc_ref.set(watchlist_data)
+            
+            logger.info(f"Added {watchlist_data['symbol']} to watchlist for user: {watchlist_data['user_id']}")
+            return doc_id
+        except Exception as e:
+            logger.error(f"Failed to add to watchlist: {e}")
+            raise
+
+    def remove_from_watchlist(self, user_id: str, symbol: str) -> bool:
+        """Remove a symbol from user's watchlist"""
+        try:
+            self._check_connection()
+            doc_id = f"{user_id}_{symbol}"
+            doc_ref = self.db.collection("watchlist").document(doc_id)
+            doc_ref.delete()
+            
+            logger.info(f"Removed {symbol} from watchlist for user: {user_id}")
+            return True
+        except Exception as e:
+            logger.error(f"Failed to remove from watchlist: {e}")
+            return False
+
+    def get_user_watchlist(self, user_id: str) -> List[Dict[str, Any]]:
+        """Get user's watchlist"""
+        try:
+            self._check_connection()
+            query = self.db.collection("watchlist").where(filter=FieldFilter("user_id", "==", user_id))
+            docs = list(query.stream())
+            items = [doc.to_dict() for doc in docs]
+            # Sort in memory by added_at desc to avoid requiring composite index
+            items.sort(key=lambda x: x.get("added_at", ""), reverse=True)
+            return items
+        except Exception as e:
+            logger.error(f"Failed to get watchlist for user {user_id}: {e}")
+            raise
+
+    def is_in_watchlist(self, user_id: str, symbol: str) -> bool:
+        """Check if symbol is in user's watchlist"""
+        try:
+            self._check_connection()
+            doc_id = f"{user_id}_{symbol}"
+            doc_ref = self.db.collection("watchlist").document(doc_id)
+            doc = doc_ref.get()
+            
+            return doc.exists
+        except Exception as e:
+            logger.error(f"Failed to check watchlist: {e}")
+            return False
+
+    # Portfolio collection methods
+    def create_portfolio_item(self, portfolio_data: Dict[str, Any]) -> str:
+        """Create a new portfolio item"""
+        try:
+            self._check_connection()
+            portfolio_id = str(uuid.uuid4())
+            portfolio_data["id"] = portfolio_id
+            
+            if not portfolio_data.get("entry_date"):
+                portfolio_data["entry_date"] = datetime.now(timezone.utc).isoformat()
+            
+            doc_ref = self.db.collection("portfolio").document(portfolio_id)
+            doc_ref.set(portfolio_data)
+            
+            logger.info(f"Created portfolio item: {portfolio_id} for user: {portfolio_data.get('user_id')}")
+            return portfolio_id
+        except Exception as e:
+            logger.error(f"Failed to create portfolio item: {e}")
+            raise
+
+    def get_portfolio_item(self, portfolio_id: str) -> Optional[Dict[str, Any]]:
+        """Get a portfolio item by ID"""
+        try:
+            self._check_connection()
+            doc_ref = self.db.collection("portfolio").document(portfolio_id)
+            doc = doc_ref.get()
+            
+            if doc.exists:
+                return doc.to_dict()
+            return None
+        except Exception as e:
+            logger.error(f"Failed to get portfolio item {portfolio_id}: {e}")
+            raise
+
+    def update_portfolio_item(self, portfolio_id: str, updates: Dict[str, Any]) -> bool:
+        """Update a portfolio item"""
+        try:
+            self._check_connection()
+            doc_ref = self.db.collection("portfolio").document(portfolio_id)
+            doc_ref.update(updates)
+            
+            logger.info(f"Updated portfolio item: {portfolio_id}")
+            return True
+        except Exception as e:
+            logger.error(f"Failed to update portfolio item {portfolio_id}: {e}")
+            return False
+
+    def get_user_portfolio(self, user_id: str, status: Optional[str] = None) -> List[Dict[str, Any]]:
+        """Get user's portfolio"""
+        try:
+            self._check_connection()
+            query = self.db.collection("portfolio").where(filter=FieldFilter("user_id", "==", user_id))
+            
+            if status:
+                query = query.where(filter=FieldFilter("status", "==", status))
+            docs = list(query.stream())
+            items = [doc.to_dict() for doc in docs]
+            items.sort(key=lambda x: x.get("entry_date", ""), reverse=True)
+            return items
+        except Exception as e:
+            logger.error(f"Failed to get portfolio for user {user_id}: {e}")
+            raise
+
+    def delete_portfolio_item(self, portfolio_id: str) -> bool:
+        """Delete a portfolio item"""
+        try:
+            self._check_connection()
+            doc_ref = self.db.collection("portfolio").document(portfolio_id)
+            doc_ref.delete()
+            
+            logger.info(f"Deleted portfolio item: {portfolio_id}")
+            return True
+        except Exception as e:
+            logger.error(f"Failed to delete portfolio item {portfolio_id}: {e}")
+            return False
+
+    # User Decisions collection methods
+    def create_user_decision(self, decision_data: Dict[str, Any]) -> str:
+        """Create a new user decision"""
+        try:
+            self._check_connection()
+            decision_id = str(uuid.uuid4())
+            decision_data["id"] = decision_id
+            decision_data["decided_at"] = datetime.now(timezone.utc).isoformat()
+            
+            doc_ref = self.db.collection("user_decisions").document(decision_id)
+            doc_ref.set(decision_data)
+            
+            logger.info(f"Created user decision: {decision_id}")
+            return decision_id
+        except Exception as e:
+            logger.error(f"Failed to create user decision: {e}")
+            raise
+
+    def get_user_decision(self, decision_id: str) -> Optional[Dict[str, Any]]:
+        """Get a user decision by ID"""
+        try:
+            self._check_connection()
+            doc_ref = self.db.collection("user_decisions").document(decision_id)
+            doc = doc_ref.get()
+            
+            if doc.exists:
+                return doc.to_dict()
+            return None
+        except Exception as e:
+            logger.error(f"Failed to get user decision {decision_id}: {e}")
+            raise
+
+    def get_decisions_for_recommendation(self, recommendation_id: str) -> List[Dict[str, Any]]:
+        """Get all decisions for a specific recommendation"""
+        try:
+            self._check_connection()
+            query = self.db.collection("user_decisions").where(filter=FieldFilter("recommendation_id", "==", recommendation_id))
+            docs = list(query.stream())
+            items = [doc.to_dict() for doc in docs]
+            items.sort(key=lambda x: x.get("decided_at", ""), reverse=True)
+            return items
+        except Exception as e:
+            logger.error(f"Failed to get decisions for recommendation {recommendation_id}: {e}")
+            raise
+
+    # Portfolio Suggestions collection methods
+    def create_portfolio_suggestion(self, suggestion_data: Dict[str, Any]) -> str:
+        """Create a new portfolio suggestion"""
+        try:
+            self._check_connection()
+            suggestion_id = str(uuid.uuid4())
+            suggestion_data["id"] = suggestion_id
+            suggestion_data["created_at"] = datetime.now(timezone.utc).isoformat()
+            
+            doc_ref = self.db.collection("portfolio_suggestions").document(suggestion_id)
+            doc_ref.set(suggestion_data)
+            
+            logger.info(f"Created portfolio suggestion: {suggestion_id} for user: {suggestion_data.get('user_id')}")
+            return suggestion_id
+        except Exception as e:
+            logger.error(f"Failed to create portfolio suggestion: {e}")
+            raise
+
+    def get_portfolio_suggestion(self, suggestion_id: str) -> Optional[Dict[str, Any]]:
+        """Get a portfolio suggestion by ID"""
+        try:
+            self._check_connection()
+            doc_ref = self.db.collection("portfolio_suggestions").document(suggestion_id)
+            doc = doc_ref.get()
+            
+            if doc.exists:
+                return doc.to_dict()
+            return None
+        except Exception as e:
+            logger.error(f"Failed to get portfolio suggestion {suggestion_id}: {e}")
+            raise
+
+    def update_portfolio_suggestion(self, suggestion_id: str, updates: Dict[str, Any]) -> bool:
+        """Update a portfolio suggestion"""
+        try:
+            self._check_connection()
+            doc_ref = self.db.collection("portfolio_suggestions").document(suggestion_id)
+            doc_ref.update(updates)
+            
+            logger.info(f"Updated portfolio suggestion: {suggestion_id}")
+            return True
+        except Exception as e:
+            logger.error(f"Failed to update portfolio suggestion {suggestion_id}: {e}")
+            return False
+
+    def get_user_portfolio_suggestions(self, user_id: str, status: Optional[str] = None) -> List[Dict[str, Any]]:
+        """Get user's portfolio suggestions"""
+        try:
+            self._check_connection()
+            query = self.db.collection("portfolio_suggestions").where(filter=FieldFilter("user_id", "==", user_id))
+            
+            if status:
+                query = query.where(filter=FieldFilter("status", "==", status))
+            docs = list(query.stream())
+            items = [doc.to_dict() for doc in docs]
+            items.sort(key=lambda x: x.get("created_at", ""), reverse=True)
+            return items
+        except Exception as e:
+            logger.error(f"Failed to get portfolio suggestions for user {user_id}: {e}")
+            raise
+
+    def delete_portfolio_suggestion(self, suggestion_id: str) -> bool:
+        """Delete a portfolio suggestion"""
+        try:
+            self._check_connection()
+            doc_ref = self.db.collection("portfolio_suggestions").document(suggestion_id)
+            doc_ref.delete()
+            
+            logger.info(f"Deleted portfolio suggestion: {suggestion_id}")
+            return True
+        except Exception as e:
+            logger.error(f"Failed to delete portfolio suggestion {suggestion_id}: {e}")
             return False
 
 # Singleton instance
