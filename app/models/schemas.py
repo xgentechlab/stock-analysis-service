@@ -205,6 +205,7 @@ class RecommendationAction(str, Enum):
 class DecisionType(str, Enum):
     APPROVED = "approved"
     REJECTED = "rejected"
+    ADD_TO_WATCHLIST = "add_to_watchlist"
 
 class PortfolioStatus(str, Enum):
     ACTIVE = "active"
@@ -216,6 +217,17 @@ class SuggestionStatus(str, Enum):
     REJECTED = "rejected"
     IMPLEMENTED = "implemented"
 
+# Trade Details Model
+class TradeDetails(BaseModel):
+    entry_price: float
+    exit_price: Optional[float] = None
+    stop_loss: Optional[float] = None
+    target_price: Optional[float] = None
+    quantity: Optional[int] = None
+    position_size: Optional[float] = None
+    risk_reward_ratio: Optional[float] = None
+    confidence: Optional[float] = None
+
 # Recommendation Model
 class Recommendation(BaseModel):
     id: str
@@ -226,6 +238,9 @@ class Recommendation(BaseModel):
     priority: RecommendationPriority = RecommendationPriority.MEDIUM
     created_at: str
     status: RecommendationStatus = RecommendationStatus.PENDING
+    final_score: Optional[float] = None
+    source_job_id: Optional[str] = None
+    trade_details: Optional[TradeDetails] = None
 
 class RecommendationCreateRequest(BaseModel):
     user_id: str
@@ -255,10 +270,12 @@ class PortfolioItem(BaseModel):
     user_id: str
     symbol: str
     quantity: int
-    avg_price: float
+    avg_price: float  # Price per share at entry
     entry_date: str
-    current_value: Optional[float] = None
-    pnl: Optional[float] = None
+    current_price: Optional[float] = None  # Current price per share
+    current_value: Optional[float] = None  # Total current value (current_price * quantity)
+    invested_amount: Optional[float] = None  # Total amount invested (avg_price * quantity)
+    pnl: Optional[float] = None  # Profit/Loss
     status: PortfolioStatus = PortfolioStatus.ACTIVE
 
 class PortfolioCreateRequest(BaseModel):
@@ -280,10 +297,16 @@ class UserDecisionRecord(BaseModel):
     recommendation_id: str
     decision: DecisionType
     decided_at: str
+    user_id: Optional[str] = None
+    symbol: Optional[str] = None
+    action_taken: Optional[str] = None
 
 class UserDecisionCreateRequest(BaseModel):
     recommendation_id: str
     decision: DecisionType
+    user_id: Optional[str] = None
+    symbol: Optional[str] = None
+    action_taken: Optional[str] = None
 
 # Portfolio Suggestion Model
 class PortfolioSuggestion(BaseModel):

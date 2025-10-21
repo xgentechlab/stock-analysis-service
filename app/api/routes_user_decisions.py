@@ -66,6 +66,7 @@ async def get_user_decision(
 
 @router.get("/user-decisions", response_model=ApiResponse)
 async def list_user_decisions(
+    user_id: Optional[str] = Query("default_user", description="Filter by user ID"),
     recommendation_id: Optional[str] = Query(None, description="Filter by recommendation ID"),
     limit: int = Query(50, ge=1, le=100, description="Number of decisions to return")
 ):
@@ -74,9 +75,7 @@ async def list_user_decisions(
         if recommendation_id:
             decisions = firestore_client.get_decisions_for_recommendation(recommendation_id)
         else:
-            # For now, we don't have a general list method, so we'll return empty
-            # In a real implementation, you might want to add pagination
-            decisions = []
+            decisions = firestore_client.list_user_decisions(user_id=user_id, limit=limit)
         
         return ApiResponse(
             ok=True,

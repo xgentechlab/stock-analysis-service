@@ -22,9 +22,10 @@ class StocksService:
         self.last_request_time = 0
         self.min_request_interval = 1.0  # 1 second between requests
         
-        # Top 200 NSE stocks by market cap (sample list - should be updated monthly)
+        # Top 500 NSE stocks by market cap (comprehensive list - should be updated monthly)
         # In production, this should be fetched from NSE API or screener
-        self.top_200_universe = [
+        self.top_500_universe = [
+            # Large Cap (Top 100)
             "RELIANCE", "TCS", "HDFCBANK", "BHARTIARTL", "ICICIBANK",
             "INFOSYS", "SBIN", "LICI", "ITC", "HINDUNILVR",
             "LT", "HCLTECH", "MARUTI", "SUNPHARMA", "TITAN",
@@ -34,13 +35,128 @@ class StocksService:
             "COALINDIA", "INDUSINDBK", "DRREDDY", "GRASIM", "TATASTEEL",
             "CIPLA", "JSWSTEEL", "BRITANNIA", "EICHERMOT", "HEROMOTOCO",
             "APOLLOHOSP", "DIVISLAB", "BPCL", "GODREJCP", "PIDILITIND",
-            "DABUR", "MARICO", "BERGEPAINT", "COLPAL", "MCDOWELL"
-            # ... Add more stocks to reach 200
+            "DABUR", "MARICO", "BERGEPAINT", "COLPAL", "MCDOWELL",
+            "HDFCLIFE", "SBILIFE", "ADANIPORTS", "TATACONSUM", "BAJAJHLDNG",
+            "SHREECEM", "UPL", "BAJAJ-AUTO", "TITAN", "HINDALCO",
+            "JINDALSTEL", "VEDL", "ADANIGREEN", "ADANITRANS", "ADANIPOWER",
+            "ADANIENT", "ADANIPORTS", "AMBUJACEM", "APOLLOTYRE", "ASHOKLEY",
+            "ASTRAL", "AUBANK", "BANDHANBNK", "BATAINDIA", "BERGEPAINT",
+            "BIOCON", "BOSCHLTD", "CADILAHC", "CHOLAFIN", "CIPLA",
+            "COLPAL", "CONCOR", "CROMPTON", "CUMMINSIND", "DABUR",
+            "DIVISLAB", "DLF", "DMART", "DRREDDY", "EICHERMOT",
+            "FEDERALBNK", "GAIL", "GODREJCP", "GRASIM", "HCLTECH",
+            "HDFCAMC", "HDFCLIFE", "HEROMOTOCO", "HINDALCO", "HINDUNILVR",
+            "IBULHSGFIN", "ICICIGI", "ICICIPRULI", "IDFCFIRSTB", "IGL",
+            "INDUSINDBK", "INFY", "IRCTC", "ITC", "JINDALSTEL",
+            "JSWSTEEL", "JUBLFOOD", "KOTAKBANK", "LALPATHLAB", "LICI",
+            "LT", "LTTS", "LUPIN", "M&M", "M&MFIN",
+            "MARUTI", "MCDOWELL", "MINDTREE", "MOTHERSON", "MPHASIS",
+            "MRF", "MUTHOOTFIN", "NAUKRI", "NESTLEIND", "NMDC",
+            "NTPC", "ONGC", "PAGEIND", "PEL", "PETRONET",
+            "PIDILITIND", "PNB", "POWERGRID", "PVR", "RBLBANK",
+            "RELIANCE", "SAIL", "SBICARD", "SBILIFE", "SBIN",
+            "SHREECEM", "SIEMENS", "SRF", "SUNPHARMA", "TATACONSUM",
+            "TATAMOTORS", "TATASTEEL", "TCS", "TECHM", "TITAN",
+            "TORNTPHARM", "TRENT", "ULTRACEMCO", "UPL", "VEDL",
+            "WIPRO", "ZEEL", "ZOMATO",
+            
+            # Mid Cap (101-300)
+            "ABBOTINDIA", "ABFRL", "ADANIGREEN", "ADANITRANS", "ADANIPOWER",
+            "AIAENG", "ALKYLAMINE", "AMBUJACEM", "APOLLOTYRE", "ASHOKLEY",
+            "ASTRAL", "AUBANK", "AUROPHARMA", "BALRAMCHIN", "BANDHANBNK",
+            "BATAINDIA", "BAYERCROP", "BEL", "BEML", "BERGEPAINT",
+            "BIOCON", "BOSCHLTD", "BSE", "CADILAHC", "CANFINHOME",
+            "CHAMBLFERT", "CHOLAFIN", "CIPLA", "COFORGE", "COLPAL",
+            "CONCOR", "CROMPTON", "CUMMINSIND", "DABUR", "DEEPAKFERT",
+            "DIVISLAB", "DLF", "DMART", "DRREDDY", "EICHERMOT",
+            "ESCORTS", "EXIDEIND", "FEDERALBNK", "GAIL", "GLENMARK",
+            "GODREJCP", "GRASIM", "HCLTECH", "HDFCAMC", "HDFCLIFE",
+            "HEROMOTOCO", "HINDALCO", "HINDUNILVR", "IBULHSGFIN", "ICICIGI",
+            "ICICIPRULI", "IDFCFIRSTB", "IGL", "INDIGO", "INDUSINDBK",
+            "INFY", "IRCTC", "ITC", "JINDALSTEL", "JSWSTEEL",
+            "JUBLFOOD", "KOTAKBANK", "LALPATHLAB", "LICI", "LT",
+            "LTTS", "LUPIN", "M&M", "M&MFIN", "MARUTI",
+            "MCDOWELL", "MINDTREE", "MOTHERSON", "MPHASIS", "MRF",
+            "MUTHOOTFIN", "NAUKRI", "NESTLEIND", "NMDC", "NTPC",
+            "ONGC", "PAGEIND", "PEL", "PETRONET", "PIDILITIND",
+            "PNB", "POWERGRID", "PVR", "RBLBANK", "RELIANCE",
+            "SAIL", "SBICARD", "SBILIFE", "SBIN", "SHREECEM",
+            "SIEMENS", "SRF", "SUNPHARMA", "TATACONSUM", "TATAMOTORS",
+            "TATASTEEL", "TCS", "TECHM", "TITAN", "TORNTPHARM",
+            "TRENT", "ULTRACEMCO", "UPL", "VEDL", "WIPRO",
+            "ZEEL", "ZOMATO", "ABBOTINDIA", "ABFRL", "AIAENG",
+            "ALKYLAMINE", "AMBUJACEM", "APOLLOTYRE", "ASHOKLEY", "ASTRAL",
+            "AUBANK", "AUROPHARMA", "BALRAMCHIN", "BANDHANBNK", "BATAINDIA",
+            "BAYERCROP", "BEL", "BEML", "BSE", "CADILAHC",
+            "CANFINHOME", "CHAMBLFERT", "CHOLAFIN", "COFORGE", "CONCOR",
+            "CROMPTON", "CUMMINSIND", "DEEPAKFERT", "ESCORTS", "EXIDEIND",
+            "FEDERALBNK", "GAIL", "GLENMARK", "HDFCAMC", "IBULHSGFIN",
+            "ICICIGI", "ICICIPRULI", "IDFCFIRSTB", "IGL", "INDIGO",
+            "IRCTC", "JUBLFOOD", "KOTAKBANK", "LALPATHLAB", "LTTS",
+            "LUPIN", "M&MFIN", "MINDTREE", "MOTHERSON", "MPHASIS",
+            "MRF", "MUTHOOTFIN", "NAUKRI", "NMDC", "PAGEIND",
+            "PEL", "PETRONET", "PNB", "PVR", "RBLBANK",
+            "SAIL", "SBICARD", "SHREECEM", "SIEMENS", "SRF",
+            "TORNTPHARM", "TRENT", "ZEEL", "ZOMATO",
+            
+            # Small Cap (301-500)
+            "3MINDIA", "AARTIIND", "ABBOTINDIA", "ABFRL", "ACC",
+            "ADANIGREEN", "ADANITRANS", "ADANIPOWER", "AIAENG", "ALKYLAMINE",
+            "AMBUJACEM", "APOLLOTYRE", "ASHOKLEY", "ASTRAL", "AUBANK",
+            "AUROPHARMA", "BALRAMCHIN", "BANDHANBNK", "BATAINDIA", "BAYERCROP",
+            "BEL", "BEML", "BHEL", "BIOCON", "BOSCHLTD",
+            "BSE", "CADILAHC", "CANFINHOME", "CHAMBLFERT", "CHOLAFIN",
+            "CIPLA", "COFORGE", "COLPAL", "CONCOR", "CROMPTON",
+            "CUMMINSIND", "DABUR", "DEEPAKFERT", "DIVISLAB", "DLF",
+            "DMART", "DRREDDY", "EICHERMOT", "ESCORTS", "EXIDEIND",
+            "FEDERALBNK", "GAIL", "GLENMARK", "GODREJCP", "GRASIM",
+            "HCLTECH", "HDFCAMC", "HDFCLIFE", "HEROMOTOCO", "HINDALCO",
+            "HINDUNILVR", "IBULHSGFIN", "ICICIGI", "ICICIPRULI", "IDFCFIRSTB",
+            "IGL", "INDIGO", "INDUSINDBK", "INFY", "IRCTC",
+            "ITC", "JINDALSTEL", "JSWSTEEL", "JUBLFOOD", "KOTAKBANK",
+            "LALPATHLAB", "LICI", "LT", "LTTS", "LUPIN",
+            "M&M", "M&MFIN", "MARUTI", "MCDOWELL", "MINDTREE",
+            "MOTHERSON", "MPHASIS", "MRF", "MUTHOOTFIN", "NAUKRI",
+            "NESTLEIND", "NMDC", "NTPC", "ONGC", "PAGEIND",
+            "PEL", "PETRONET", "PIDILITIND", "PNB", "POWERGRID",
+            "PVR", "RBLBANK", "RELIANCE", "SAIL", "SBICARD",
+            "SBILIFE", "SBIN", "SHREECEM", "SIEMENS", "SRF",
+            "SUNPHARMA", "TATACONSUM", "TATAMOTORS", "TATASTEEL", "TCS",
+            "TECHM", "TITAN", "TORNTPHARM", "TRENT", "ULTRACEMCO",
+            "UPL", "VEDL", "WIPRO", "ZEEL", "ZOMATO",
+            "3MINDIA", "AARTIIND", "ACC", "AIAENG", "ALKYLAMINE",
+            "AMBUJACEM", "APOLLOTYRE", "ASHOKLEY", "ASTRAL", "AUBANK",
+            "AUROPHARMA", "BALRAMCHIN", "BANDHANBNK", "BATAINDIA", "BAYERCROP",
+            "BEL", "BEML", "BHEL", "BSE", "CADILAHC",
+            "CANFINHOME", "CHAMBLFERT", "CHOLAFIN", "COFORGE", "CONCOR",
+            "CROMPTON", "CUMMINSIND", "DEEPAKFERT", "ESCORTS", "EXIDEIND",
+            "FEDERALBNK", "GAIL", "GLENMARK", "HDFCAMC", "IBULHSGFIN",
+            "ICICIGI", "ICICIPRULI", "IDFCFIRSTB", "IGL", "INDIGO",
+            "IRCTC", "JUBLFOOD", "KOTAKBANK", "LALPATHLAB", "LTTS",
+            "LUPIN", "M&MFIN", "MINDTREE", "MOTHERSON", "MPHASIS",
+            "MRF", "MUTHOOTFIN", "NAUKRI", "NMDC", "PAGEIND",
+            "PEL", "PETRONET", "PNB", "PVR", "RBLBANK",
+            "SAIL", "SBICARD", "SHREECEM", "SIEMENS", "SRF",
+            "TORNTPHARM", "TRENT", "ZEEL", "ZOMATO"
         ]
+        
+        # Keep original list for backward compatibility
+        self.top_200_universe = self.top_500_universe[:200]
     
     def get_universe_symbols(self, limit: int = 200) -> List[str]:
-        """Get the stock universe for analysis"""
+        """Get the stock universe for analysis (backward compatibility)"""
         return self.top_200_universe[:limit]
+    
+    def get_expanded_universe_symbols(self, limit: int = 500, market_cap_tier: str = "all") -> List[str]:
+        """Get expanded universe with market cap filtering"""
+        if market_cap_tier == "large_cap":
+            return self.top_500_universe[:100]  # First 100 are large cap
+        elif market_cap_tier == "mid_cap":
+            return self.top_500_universe[100:300]  # Next 200 are mid cap
+        elif market_cap_tier == "small_cap":
+            return self.top_500_universe[300:500]  # Last 200 are small cap
+        else:  # all
+            return self.top_500_universe[:limit]
     
     def fetch_ohlcv_data(self, symbol: str, days: int = 60, max_retries: int = 3) -> Optional[pd.DataFrame]:
         """

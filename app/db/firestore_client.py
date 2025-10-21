@@ -282,6 +282,26 @@ class FirestoreClient:
             return False
 
     # Symbol-based analysis retrieval methods
+    def get_job_analysis_data(self, job_id: str) -> Optional[Dict[str, Any]]:
+        """Get complete analysis data for a specific job ID"""
+        try:
+            self._check_connection()
+            logger.info(f"🔍 FIRESTORE QUERY: Fetching analysis data for job {job_id}")
+            
+            doc_ref = self.db.collection("jobs").document(job_id)
+            doc = doc_ref.get()
+            
+            if doc.exists:
+                job_data = doc.to_dict()
+                logger.info(f"📊 FIRESTORE RESULT: Found job data for {job_id}")
+                return job_data
+            else:
+                logger.warning(f"📊 FIRESTORE RESULT: Job {job_id} not found")
+                return None
+        except Exception as e:
+            logger.error(f"Failed to get job analysis data for {job_id}: {e}")
+            return None
+
     def get_latest_analysis_by_symbol(self, symbol: str, analysis_type: str = "enhanced") -> Optional[Dict[str, Any]]:
         """Get most recent completed analysis for a symbol with complete data"""
         try:
@@ -586,20 +606,44 @@ class FirestoreClient:
     
     # Recommendations collection methods
     def create_recommendation(self, recommendation_data: Dict[str, Any]) -> str:
-        """Create a new recommendation"""
+        """Create or update recommendation with deduplication"""
         try:
             self._check_connection()
-            recommendation_id = str(uuid.uuid4())
-            recommendation_data["id"] = recommendation_id
-            recommendation_data["created_at"] = datetime.now(timezone.utc).isoformat()
+            user_id = recommendation_data.get('user_id')
+            symbol = recommendation_data.get('symbol')
+            action = recommendation_data.get('action')
             
-            doc_ref = self.db.collection("recommendations").document(recommendation_id)
-            doc_ref.set(recommendation_data)
+            # Check for existing recommendation for same user+symbol+action
+            existing = self.get_existing_recommendation(user_id, symbol, action)
             
-            logger.info(f"Created recommendation: {recommendation_id} for user: {recommendation_data.get('user_id')}")
-            return recommendation_id
+            if existing:
+                # Update existing recommendation with new data
+                recommendation_id = existing['id']
+                recommendation_data["id"] = recommendation_id
+                recommendation_data["updated_at"] = datetime.now(timezone.utc).isoformat()
+                
+                doc_ref = self.db.collection("recommendations").document(recommendation_id)
+                doc_ref.update(recommendation_data)
+                
+                logger.info(f"Updated existing recommendation: {recommendation_id} for user: {user_id}, symbol: {symbol}, action: {action}")
+                return recommendation_id
+            else:
+                # Create new recommendation
+                recommendation_id = str(uuid.uuid4())
+                recommendation_data["id"] = recommendation_id
+                recommendation_data["created_at"] = datetime.now(timezone.utc).isoformat()
+                
+                # Set default status if not provided
+                if "status" not in recommendation_data:
+                    recommendation_data["status"] = "pending"
+                
+                doc_ref = self.db.collection("recommendations").document(recommendation_id)
+                doc_ref.set(recommendation_data)
+                
+                logger.info(f"Created new recommendation: {recommendation_id} for user: {user_id}, symbol: {symbol}, action: {action}")
+                return recommendation_id
         except Exception as e:
-            logger.error(f"Failed to create recommendation: {e}")
+            logger.error(f"Failed to create/update recommendation: {e}")
             raise
 
     def get_recommendation(self, recommendation_id: str) -> Optional[Dict[str, Any]]:
@@ -616,6 +660,31 @@ class FirestoreClient:
             logger.error(f"Failed to get recommendation {recommendation_id}: {e}")
             raise
 
+    def get_existing_recommendation(self, user_id: str, symbol: str, action: str) -> Optional[Dict[str, Any]]:
+        """Get existing recommendation for user+symbol+action combination"""
+        try:
+            self._check_connection()
+            # Query without status filter first, then filter in memory
+            query = (self.db.collection("recommendations")
+                    .where(filter=FieldFilter("user_id", "==", user_id))
+                    .where(filter=FieldFilter("symbol", "==", symbol))
+                    .where(filter=FieldFilter("action", "==", action))
+                    .limit(10))  # Get more to filter in memory
+            
+            docs = list(query.stream())
+            
+            # Filter for pending status or no status (defaults to pending)
+            for doc in docs:
+                data = doc.to_dict()
+                status = data.get("status", "pending")  # Default to pending if not set
+                if status == "pending":
+                    return data
+            
+            return None
+        except Exception as e:
+            logger.error(f"Failed to check existing recommendation: {e}")
+            return None
+
     def update_recommendation(self, recommendation_id: str, updates: Dict[str, Any]) -> bool:
         """Update a recommendation"""
         try:
@@ -630,7 +699,7 @@ class FirestoreClient:
             return False
 
     def list_recommendations(self, user_id: Optional[str] = None, status: Optional[str] = None, 
-                           limit: int = 50, cursor: Optional[str] = None) -> Dict[str, Any]:
+                           limit: int = 50, cursor: Optional[str] = None, exclude_acted: bool = True) -> Dict[str, Any]:
         """List recommendations with optional filtering"""
         try:
             self._check_connection()
@@ -642,6 +711,18 @@ class FirestoreClient:
             # Avoid composite index requirement: stream then sort in memory
             docs = list(query.stream())
             recommendations = [doc.to_dict() for doc in docs]
+            
+            # Filter out recommendations that have been acted upon
+            if exclude_acted:
+                acted_upon_ids = set()
+                if user_id:
+                    # Get all decisions for this user
+                    decisions = self.list_user_decisions(user_id=user_id, limit=1000)
+                    acted_upon_ids = {decision.get("recommendation_id") for decision in decisions}
+                
+                # Filter out recommendations that have been acted upon
+                recommendations = [rec for rec in recommendations if rec.get("id") not in acted_upon_ids]
+            
             recommendations.sort(key=lambda x: x.get("created_at", ""), reverse=True)
             recommendations = recommendations[:limit]
             
@@ -669,17 +750,26 @@ class FirestoreClient:
 
     # Watchlist collection methods
     def add_to_watchlist(self, watchlist_data: Dict[str, Any]) -> str:
-        """Add a symbol to user's watchlist"""
+        """Add a symbol to user's watchlist with duplicate prevention"""
         try:
             self._check_connection()
+            user_id = watchlist_data['user_id']
+            symbol = watchlist_data['symbol']
+            
+            # Check if already exists
+            if self.is_in_watchlist(user_id, symbol):
+                logger.info(f"Symbol {symbol} already in watchlist for user {user_id} - skipping duplicate")
+                return f"{user_id}_{symbol}"
+            
+            # Add to watchlist
             watchlist_data["added_at"] = datetime.now(timezone.utc).isoformat()
             
             # Use composite key: user_id + symbol
-            doc_id = f"{watchlist_data['user_id']}_{watchlist_data['symbol']}"
+            doc_id = f"{user_id}_{symbol}"
             doc_ref = self.db.collection("watchlist").document(doc_id)
             doc_ref.set(watchlist_data)
             
-            logger.info(f"Added {watchlist_data['symbol']} to watchlist for user: {watchlist_data['user_id']}")
+            logger.info(f"Added {symbol} to watchlist for user: {user_id}")
             return doc_id
         except Exception as e:
             logger.error(f"Failed to add to watchlist: {e}")
@@ -845,6 +935,28 @@ class FirestoreClient:
             return items
         except Exception as e:
             logger.error(f"Failed to get decisions for recommendation {recommendation_id}: {e}")
+            raise
+
+    def list_user_decisions(self, user_id: Optional[str] = None, limit: int = 50) -> List[Dict[str, Any]]:
+        """List user decisions with optional filtering"""
+        try:
+            self._check_connection()
+            query = self.db.collection("user_decisions")
+            
+            if user_id:
+                query = query.where(filter=FieldFilter("user_id", "==", user_id))
+            
+            # Avoid composite index requirement: stream then sort in memory
+            docs = list(query.stream())
+            decisions = [doc.to_dict() for doc in docs]
+            
+            # Sort by decided_at descending and limit
+            decisions.sort(key=lambda x: x.get("decided_at", ""), reverse=True)
+            decisions = decisions[:limit]
+            
+            return decisions
+        except Exception as e:
+            logger.error(f"Failed to list user decisions: {e}")
             raise
 
     # Portfolio Suggestions collection methods

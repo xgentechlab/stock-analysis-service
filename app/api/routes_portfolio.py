@@ -99,8 +99,9 @@ async def list_portfolio_items(
 ):
     """List portfolio items with optional filtering"""
     try:
+        # Use default_user if user_id is not provided
         if not user_id:
-            raise HTTPException(status_code=400, detail="user_id is required")
+            user_id = "default_user"
         
         portfolio_items = firestore_client.get_user_portfolio(user_id, status)
         
@@ -129,13 +130,19 @@ async def get_user_portfolio(
         # Calculate portfolio summary
         total_value = 0
         total_pnl = 0
+        total_invested = 0
         active_items = 0
         
         for item in portfolio_items:
+            # Recalculate P&L for existing items if needed
+            item = _recalculate_pnl_if_needed(item)
+            
             if item.get("current_value"):
                 total_value += item["current_value"]
             if item.get("pnl"):
                 total_pnl += item["pnl"]
+            if item.get("invested_amount"):
+                total_invested += item["invested_amount"]
             if item.get("status") == "active":
                 active_items += 1
         
@@ -145,6 +152,7 @@ async def get_user_portfolio(
                 "portfolio": portfolio_items,
                 "total": len(portfolio_items),
                 "summary": {
+                    "total_invested": total_invested,
                     "total_value": total_value,
                     "total_pnl": total_pnl,
                     "active_items": active_items,
@@ -216,3 +224,33 @@ async def close_portfolio_item(
     except Exception as e:
         logger.error(f"Failed to close portfolio item {portfolio_id}: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+def _recalculate_pnl_if_needed(item: dict) -> dict:
+    """Recalculate P&L for portfolio item if current price is available"""
+    try:
+        current_price = item.get('current_price')
+        avg_price = item.get('avg_price')
+        quantity = item.get('quantity', 0)
+        action = item.get('action', 'buy').lower()
+        
+        if current_price and avg_price and quantity > 0:
+            # Calculate P&L based on action type
+            if action == 'buy':
+                # For BUY: Profit when current_price > entry_price
+                pnl = (current_price - avg_price) * quantity
+            elif action == 'sell':
+                # For SELL: Profit when current_price < entry_price (short position)
+                pnl = (avg_price - current_price) * quantity
+            else:
+                # Default to buy logic
+                pnl = (current_price - avg_price) * quantity
+            
+            # Update the item with recalculated values
+            item['pnl'] = pnl
+            item['current_value'] = current_price * quantity
+            item['invested_amount'] = avg_price * quantity
+        
+        return item
+    except Exception as e:
+        logger.error(f"Error recalculating P&L for item {item.get('id')}: {e}")
+        return item

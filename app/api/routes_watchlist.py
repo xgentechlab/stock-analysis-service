@@ -67,6 +67,24 @@ async def remove_from_watchlist(
         logger.error(f"Failed to remove from watchlist: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
+@router.get("/watchlist", response_model=ApiResponse)
+async def get_default_watchlist():
+    """Get default user's watchlist"""
+    try:
+        watchlist = firestore_client.get_user_watchlist("default_user")
+        
+        return ApiResponse(
+            ok=True,
+            data={
+                "watchlist": watchlist,
+                "total": len(watchlist),
+                "user_id": "default_user"
+            }
+        )
+    except Exception as e:
+        logger.error(f"Failed to get default watchlist: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 @router.get("/watchlist/{user_id}", response_model=ApiResponse)
 async def get_user_watchlist(
     user_id: str = Path(..., description="User ID")
@@ -84,6 +102,26 @@ async def get_user_watchlist(
         )
     except Exception as e:
         logger.error(f"Failed to get watchlist for user {user_id}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.get("/watchlist/check/{symbol}", response_model=ApiResponse)
+async def check_default_watchlist_status(
+    symbol: str = Path(..., description="Stock symbol")
+):
+    """Check if a symbol is in default user's watchlist"""
+    try:
+        is_in_watchlist = firestore_client.is_in_watchlist("default_user", symbol)
+        
+        return ApiResponse(
+            ok=True,
+            data={
+                "symbol": symbol,
+                "user_id": "default_user",
+                "is_in_watchlist": is_in_watchlist
+            }
+        )
+    except Exception as e:
+        logger.error(f"Failed to check default watchlist status for {symbol}: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/watchlist/{user_id}/check/{symbol}", response_model=ApiResponse)

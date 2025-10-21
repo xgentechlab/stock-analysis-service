@@ -893,6 +893,19 @@ class StageProcessor:
                             final_reco_fallback = ((verdict_stage or {}).get("data") or {}).get("final_recommendation", {})
                             ai_conf = float(final_reco_fallback.get("confidence", 0.0))
                             final_score = 0.5 * combined_score + 0.3 * ai_conf + 0.2 * (combined_score * ai_conf)
+                            
+                            # Store the calculated final_score back to the job document
+                            updated_final_scoring_data = final_scoring_data.copy()
+                            updated_final_scoring_data["final_score"] = final_score
+                            updated_final_scoring_data["meets_threshold"] = final_score >= 0.5
+                            
+                            # Update the stage with the corrected final_score
+                            self.job_service.update_stage_status(
+                                job_id, 
+                                stage_name, 
+                                StageStatus.COMPLETED, 
+                                data=updated_final_scoring_data
+                            )
 
                         verdict_stage = cached_stages.get("verdict_synthesis", {})
                         final_reco = (verdict_stage.get("data", {}) or {}).get("final_recommendation", {})

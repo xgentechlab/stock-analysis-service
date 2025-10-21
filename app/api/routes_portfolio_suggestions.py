@@ -82,8 +82,9 @@ async def list_portfolio_suggestions(
 ):
     """List portfolio suggestions with optional filtering"""
     try:
+        # Use default_user if user_id is not provided
         if not user_id:
-            raise HTTPException(status_code=400, detail="user_id is required")
+            user_id = "default_user"
         
         suggestions = firestore_client.get_user_portfolio_suggestions(user_id, status)
         

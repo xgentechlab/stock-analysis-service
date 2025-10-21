@@ -64,6 +64,11 @@ class Settings(BaseSettings):
     min_market_cap_cr: float = float(os.getenv("MIN_MARKET_CAP_CR", "500"))
     max_pe_ratio: float = float(os.getenv("MAX_PE_RATIO", "60"))
     
+    # Expanded universe settings
+    expanded_universe_size: int = int(os.getenv("EXPANDED_UNIVERSE_SIZE", "500"))
+    enable_enhanced_indicators: bool = bool(os.getenv("ENABLE_ENHANCED_INDICATORS", "true"))
+    technical_score_weights: str = os.getenv("TECHNICAL_SCORE_WEIGHTS", "0.2,0.2,0.15,0.2,0.15,0.1")  # momentum,volume,breakout,trend,momentum_osc,volume_momentum
+    
     class Config:
         env_file = ".env"
         extra = "ignore"  # Ignore extra fields from .env file
