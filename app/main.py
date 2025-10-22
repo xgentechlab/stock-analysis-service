@@ -13,7 +13,8 @@ from app.config import settings
 from app.api import (
     routes_signals, routes_positions, routes_admin, routes_jobs,
     routes_recommendations, routes_watchlist, routes_portfolio,
-    routes_user_decisions, routes_portfolio_suggestions, routes_news, routes_hot_stocks
+    routes_user_decisions, routes_portfolio_suggestions, routes_news, routes_hot_stocks,
+    routes_stocks
 )
 from app.models.schemas import ApiResponse
 
@@ -138,6 +139,9 @@ app.include_router(routes_user_decisions.router)
 app.include_router(routes_portfolio_suggestions.router)
 app.include_router(routes_news.router)
 app.include_router(routes_hot_stocks.router)
+
+# Stocks management router
+app.include_router(routes_stocks.router)
 
 # Add request logging middleware
 @app.middleware("http")

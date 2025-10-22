@@ -21,6 +21,45 @@ class FundamentalSnapshot(BaseModel):
     eps_ttm: Optional[float] = None
     market_cap_cr: Optional[float] = None
 
+class MultiTimeframeData(BaseModel):
+    """Multi-timeframe OHLCV data for technical analysis"""
+    timeframe: str  # 1m, 5m, 15m, 1d, 1wk
+    data: List[Dict[str, Any]]  # OHLCV data points
+    last_updated: datetime
+    data_points: int
+
+class MultiTimeframeAnalysis(BaseModel):
+    """Comprehensive multi-timeframe analysis for a stock"""
+    symbol: str
+    analysis_id: str
+    created_at: datetime
+    updated_at: datetime
+    
+    # Multi-timeframe data
+    timeframes: Dict[str, MultiTimeframeData]  # timeframe -> data
+    
+    # Technical indicators across timeframes
+    technical_indicators: Dict[str, Any] = Field(default_factory=dict)
+    
+    # Trend analysis
+    trend_alignment: Dict[str, str] = Field(default_factory=dict)  # timeframe -> trend
+    momentum_scores: Dict[str, float] = Field(default_factory=dict)  # timeframe -> score
+    
+    # Divergence signals
+    divergence_signals: Dict[str, Any] = Field(default_factory=dict)
+    
+    # Volume analysis
+    volume_analysis: Dict[str, Any] = Field(default_factory=dict)
+    
+    # Overall multi-timeframe score
+    mtf_score: Optional[float] = None
+    mtf_confidence: Optional[float] = None
+    mtf_strength: Optional[str] = None  # strong, moderate, weak
+    
+    # Metadata
+    analysis_version: str = "1.0"
+    data_quality: str = "good"  # good, fair, poor
+
 class Verdict(BaseModel):
     action: str  # buy|watch|avoid
     confidence: float = Field(ge=0.0, le=1.0)
@@ -361,3 +400,104 @@ class NewsworthyStock(BaseModel):
 class NewsIntelligenceResponse(BaseModel):
     stocks: List[NewsworthyStock]
     total: int
+
+# Stock Model for Nifty 500 stocks
+class Stock(BaseModel):
+    id: str
+    company_name: str
+    symbol: str
+    industry: str
+    series: Optional[str] = None
+    isin_code: Optional[str] = None
+    created_at: Optional[str] = None
+    updated_at: Optional[str] = None
+    is_active: bool = True
+
+class StockCreateRequest(BaseModel):
+    company_name: str
+    symbol: str
+    industry: str
+    series: Optional[str] = None
+    isin_code: Optional[str] = None
+
+class StockUpdateRequest(BaseModel):
+    company_name: Optional[str] = None
+    symbol: Optional[str] = None
+    industry: Optional[str] = None
+    series: Optional[str] = None
+    isin_code: Optional[str] = None
+    is_active: Optional[bool] = None
+
+class StockListResponse(BaseModel):
+    stocks: List[Stock]
+    total: int
+    page: int = 1
+    limit: int = 50
+
+# Hot Stocks Models
+class HotStockSelection(BaseModel):
+    """Individual hot stock selection with analysis data"""
+    symbol: str
+    rank: int
+    enhanced_technical_score: Optional[float] = None
+    enhanced_fundamental_score: Optional[float] = None
+    enhanced_combined_score: Optional[float] = None
+    basic_composite_score: Optional[float] = None
+    basic_fundamental_score: Optional[float] = None
+    momentum_pct_5d: float
+    volume_spike_ratio: float
+    institutional_activity: bool = False
+    pe_ratio: Optional[float] = None
+    roe: Optional[float] = None
+    market_cap_cr: Optional[float] = None
+    sector: Optional[str] = None
+    industry: Optional[str] = None
+    analysis_id: str  # Reference to detailed analysis
+    multi_timeframe_analysis_id: Optional[str] = None
+
+class HotStocksRunMetadata(BaseModel):
+    """Metadata for a hot stocks run"""
+    run_id: str
+    run_timestamp: datetime
+    universe_size: int
+    total_processed: int
+    total_filtered: int
+    total_selected: int
+    processing_time_seconds: float
+    filters_applied: Dict[str, Any]
+    selection_criteria: Dict[str, Any]
+    data_quality: str = "good"
+    stage_1_2_integrated: bool = True
+    data_fetch_optimized: bool = True
+    api_version: str = "1.0"
+
+class HotStocksRun(BaseModel):
+    """Complete hot stocks run with metadata and selections"""
+    run_id: str
+    run_timestamp: datetime
+    metadata: HotStocksRunMetadata
+    hot_stocks: List[HotStockSelection]
+    summary: Dict[str, Any]
+    created_at: datetime
+    updated_at: datetime
+
+class HotStocksRunCreateRequest(BaseModel):
+    """Request to create a new hot stocks run"""
+    universe_size: int = 50
+    limit: int = 10
+    min_momentum_pct: float = 0.1
+    min_volume_spike: float = 0.01
+    max_pe_ratio: float = 100.0
+    min_roe: float = 5.0
+    min_market_cap_cr: float = 500.0
+    require_institutional: bool = False
+
+class HotStocksRunResponse(BaseModel):
+    """Response for hot stocks run"""
+    run_id: str
+    status: str
+    message: str
+    hot_stocks: List[HotStockSelection]
+    metadata: HotStocksRunMetadata
+    processing_time_seconds: float
+    created_at: datetime

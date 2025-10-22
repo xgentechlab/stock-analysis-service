@@ -349,6 +349,53 @@ class EnhancedTechnicalFramework:
             logger.error(f"Error in enhanced technical analysis for {symbol}: {e}")
             return {}
     
+    def _analyze_with_prefetched_data(self, symbol: str, daily_data: pd.DataFrame, mtf_data: Dict[str, Optional[pd.DataFrame]]) -> Dict[str, Any]:
+        """
+        Analyze symbol using pre-fetched data to avoid redundant API calls
+        """
+        try:
+            if daily_data is None or daily_data.empty:
+                logger.warning(f"No daily data available for {symbol}")
+                return {}
+            
+            analysis = {}
+            
+            # Basic technical indicators
+            try:
+                analysis.update(self._calculate_basic_indicators(daily_data))
+            except Exception as e:
+                logger.error(f"Error calculating basic indicators for {symbol}: {e}")
+            
+            # Advanced momentum analysis
+            try:
+                analysis.update(self._calculate_momentum_analysis(daily_data))
+            except Exception as e:
+                logger.error(f"Error calculating momentum analysis for {symbol}: {e}")
+            
+            # Volume profile analysis
+            try:
+                analysis.update(self._calculate_volume_analysis(daily_data))
+            except Exception as e:
+                logger.error(f"Error calculating volume analysis for {symbol}: {e}")
+            
+            # Multi-timeframe analysis
+            try:
+                analysis.update(self._calculate_mtf_analysis(mtf_data))
+            except Exception as e:
+                logger.error(f"Error calculating multi-timeframe analysis for {symbol}: {e}")
+            
+            # Generate signals
+            try:
+                analysis.update(self._generate_technical_signals(analysis, mtf_data))
+            except Exception as e:
+                logger.error(f"Error generating technical signals for {symbol}: {e}")
+            
+            return analysis
+            
+        except Exception as e:
+            logger.error(f"Error in enhanced technical analysis with prefetched data for {symbol}: {e}")
+            return {}
+    
     def _calculate_basic_indicators(self, data: pd.DataFrame) -> Dict[str, Any]:
         """Calculate basic technical indicators"""
         close = data['Close']

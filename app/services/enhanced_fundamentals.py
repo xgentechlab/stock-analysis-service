@@ -111,6 +111,45 @@ class EnhancedFundamentalAnalysis:
             logger.error(f"Error fetching enhanced fundamentals for {symbol}: {e}")
             return {}
     
+    def _process_with_prefetched_data(self, symbol: str, info: Dict, financials: pd.DataFrame, 
+                                    balance_sheet: pd.DataFrame, cash_flow: pd.DataFrame) -> Dict[str, Any]:
+        """
+        Process enhanced fundamentals using pre-fetched data to avoid redundant API calls
+        """
+        try:
+            if not info:
+                logger.warning(f"No fundamental data found for {symbol}")
+                return {}
+            
+            # Extract comprehensive fundamental metrics using pre-fetched data
+            fundamentals = {
+                # Basic metrics (existing)
+                "pe": self._safe_get_float(info, "forwardPE") or self._safe_get_float(info, "trailingPE"),
+                "pb": self._safe_get_float(info, "priceToBook"),
+                "roe": self._safe_get_float(info, "returnOnEquity"),
+                "eps_ttm": self._safe_get_float(info, "trailingEps"),
+                "market_cap_cr": self._safe_get_float(info, "marketCap", convert_to_cr=True),
+                
+                # Quality Metrics
+                "quality_metrics": self._extract_quality_metrics(info, financials, balance_sheet, cash_flow),
+                
+                # Growth Metrics  
+                "growth_metrics": self._extract_growth_metrics(financials, balance_sheet, cash_flow),
+                
+                # Value Metrics
+                "value_metrics": self._extract_value_metrics(info, symbol),
+                
+                # Momentum Metrics
+                "momentum_metrics": self._extract_momentum_metrics(info, symbol)
+            }
+            
+            logger.info(f"Processed enhanced fundamental data for {symbol} with prefetched data")
+            return fundamentals
+            
+        except Exception as e:
+            logger.error(f"Error processing enhanced fundamentals with prefetched data for {symbol}: {e}")
+            return {}
+    
     def _extract_quality_metrics(self, info: Dict, financials: pd.DataFrame, 
                                 balance_sheet: pd.DataFrame, cash_flow: pd.DataFrame) -> Dict[str, Any]:
         """Extract quality metrics for fundamental analysis"""

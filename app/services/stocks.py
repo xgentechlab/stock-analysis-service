@@ -1,6 +1,6 @@
 """
 Stock data fetching and fundamental analysis service
-Uses yfinance as the primary data source
+Uses yfinance as the primary data source and database for universe management
 """
 import yfinance as yf
 import pandas as pd
@@ -10,6 +10,8 @@ import logging
 from datetime import datetime, timedelta
 import time
 import random
+
+from app.db.firestore_client import firestore_client
 
 logger = logging.getLogger(__name__)
 
@@ -22,141 +24,89 @@ class StocksService:
         self.last_request_time = 0
         self.min_request_interval = 1.0  # 1 second between requests
         
-        # Top 500 NSE stocks by market cap (comprehensive list - should be updated monthly)
-        # In production, this should be fetched from NSE API or screener
-        self.top_500_universe = [
-            # Large Cap (Top 100)
+        # Cache for universe data to avoid repeated DB calls
+        self._universe_cache = {}
+        self._cache_timestamp = None
+        self._cache_duration = 300  # 5 minutes cache
+        
+        # Fallback universe for emergency cases (minimal set)
+        self._fallback_universe = [
             "RELIANCE", "TCS", "HDFCBANK", "BHARTIARTL", "ICICIBANK",
             "INFOSYS", "SBIN", "LICI", "ITC", "HINDUNILVR",
             "LT", "HCLTECH", "MARUTI", "SUNPHARMA", "TITAN",
-            "ONGC", "TATAMOTORS", "NTPC", "AXISBANK", "NESTLEIND",
-            "WIPRO", "ULTRACEMCO", "ADANIENT", "ASIANPAINT", "BAJFINANCE",
-            "M&M", "TATACONSUM", "BAJAJFINSV", "POWERGRID", "TECHM",
-            "COALINDIA", "INDUSINDBK", "DRREDDY", "GRASIM", "TATASTEEL",
-            "CIPLA", "JSWSTEEL", "BRITANNIA", "EICHERMOT", "HEROMOTOCO",
-            "APOLLOHOSP", "DIVISLAB", "BPCL", "GODREJCP", "PIDILITIND",
-            "DABUR", "MARICO", "BERGEPAINT", "COLPAL", "MCDOWELL",
-            "HDFCLIFE", "SBILIFE", "ADANIPORTS", "TATACONSUM", "BAJAJHLDNG",
-            "SHREECEM", "UPL", "BAJAJ-AUTO", "TITAN", "HINDALCO",
-            "JINDALSTEL", "VEDL", "ADANIGREEN", "ADANITRANS", "ADANIPOWER",
-            "ADANIENT", "ADANIPORTS", "AMBUJACEM", "APOLLOTYRE", "ASHOKLEY",
-            "ASTRAL", "AUBANK", "BANDHANBNK", "BATAINDIA", "BERGEPAINT",
-            "BIOCON", "BOSCHLTD", "CADILAHC", "CHOLAFIN", "CIPLA",
-            "COLPAL", "CONCOR", "CROMPTON", "CUMMINSIND", "DABUR",
-            "DIVISLAB", "DLF", "DMART", "DRREDDY", "EICHERMOT",
-            "FEDERALBNK", "GAIL", "GODREJCP", "GRASIM", "HCLTECH",
-            "HDFCAMC", "HDFCLIFE", "HEROMOTOCO", "HINDALCO", "HINDUNILVR",
-            "IBULHSGFIN", "ICICIGI", "ICICIPRULI", "IDFCFIRSTB", "IGL",
-            "INDUSINDBK", "INFY", "IRCTC", "ITC", "JINDALSTEL",
-            "JSWSTEEL", "JUBLFOOD", "KOTAKBANK", "LALPATHLAB", "LICI",
-            "LT", "LTTS", "LUPIN", "M&M", "M&MFIN",
-            "MARUTI", "MCDOWELL", "MINDTREE", "MOTHERSON", "MPHASIS",
-            "MRF", "MUTHOOTFIN", "NAUKRI", "NESTLEIND", "NMDC",
-            "NTPC", "ONGC", "PAGEIND", "PEL", "PETRONET",
-            "PIDILITIND", "PNB", "POWERGRID", "PVR", "RBLBANK",
-            "RELIANCE", "SAIL", "SBICARD", "SBILIFE", "SBIN",
-            "SHREECEM", "SIEMENS", "SRF", "SUNPHARMA", "TATACONSUM",
-            "TATAMOTORS", "TATASTEEL", "TCS", "TECHM", "TITAN",
-            "TORNTPHARM", "TRENT", "ULTRACEMCO", "UPL", "VEDL",
-            "WIPRO", "ZEEL", "ZOMATO",
-            
-            # Mid Cap (101-300)
-            "ABBOTINDIA", "ABFRL", "ADANIGREEN", "ADANITRANS", "ADANIPOWER",
-            "AIAENG", "ALKYLAMINE", "AMBUJACEM", "APOLLOTYRE", "ASHOKLEY",
-            "ASTRAL", "AUBANK", "AUROPHARMA", "BALRAMCHIN", "BANDHANBNK",
-            "BATAINDIA", "BAYERCROP", "BEL", "BEML", "BERGEPAINT",
-            "BIOCON", "BOSCHLTD", "BSE", "CADILAHC", "CANFINHOME",
-            "CHAMBLFERT", "CHOLAFIN", "CIPLA", "COFORGE", "COLPAL",
-            "CONCOR", "CROMPTON", "CUMMINSIND", "DABUR", "DEEPAKFERT",
-            "DIVISLAB", "DLF", "DMART", "DRREDDY", "EICHERMOT",
-            "ESCORTS", "EXIDEIND", "FEDERALBNK", "GAIL", "GLENMARK",
-            "GODREJCP", "GRASIM", "HCLTECH", "HDFCAMC", "HDFCLIFE",
-            "HEROMOTOCO", "HINDALCO", "HINDUNILVR", "IBULHSGFIN", "ICICIGI",
-            "ICICIPRULI", "IDFCFIRSTB", "IGL", "INDIGO", "INDUSINDBK",
-            "INFY", "IRCTC", "ITC", "JINDALSTEL", "JSWSTEEL",
-            "JUBLFOOD", "KOTAKBANK", "LALPATHLAB", "LICI", "LT",
-            "LTTS", "LUPIN", "M&M", "M&MFIN", "MARUTI",
-            "MCDOWELL", "MINDTREE", "MOTHERSON", "MPHASIS", "MRF",
-            "MUTHOOTFIN", "NAUKRI", "NESTLEIND", "NMDC", "NTPC",
-            "ONGC", "PAGEIND", "PEL", "PETRONET", "PIDILITIND",
-            "PNB", "POWERGRID", "PVR", "RBLBANK", "RELIANCE",
-            "SAIL", "SBICARD", "SBILIFE", "SBIN", "SHREECEM",
-            "SIEMENS", "SRF", "SUNPHARMA", "TATACONSUM", "TATAMOTORS",
-            "TATASTEEL", "TCS", "TECHM", "TITAN", "TORNTPHARM",
-            "TRENT", "ULTRACEMCO", "UPL", "VEDL", "WIPRO",
-            "ZEEL", "ZOMATO", "ABBOTINDIA", "ABFRL", "AIAENG",
-            "ALKYLAMINE", "AMBUJACEM", "APOLLOTYRE", "ASHOKLEY", "ASTRAL",
-            "AUBANK", "AUROPHARMA", "BALRAMCHIN", "BANDHANBNK", "BATAINDIA",
-            "BAYERCROP", "BEL", "BEML", "BSE", "CADILAHC",
-            "CANFINHOME", "CHAMBLFERT", "CHOLAFIN", "COFORGE", "CONCOR",
-            "CROMPTON", "CUMMINSIND", "DEEPAKFERT", "ESCORTS", "EXIDEIND",
-            "FEDERALBNK", "GAIL", "GLENMARK", "HDFCAMC", "IBULHSGFIN",
-            "ICICIGI", "ICICIPRULI", "IDFCFIRSTB", "IGL", "INDIGO",
-            "IRCTC", "JUBLFOOD", "KOTAKBANK", "LALPATHLAB", "LTTS",
-            "LUPIN", "M&MFIN", "MINDTREE", "MOTHERSON", "MPHASIS",
-            "MRF", "MUTHOOTFIN", "NAUKRI", "NMDC", "PAGEIND",
-            "PEL", "PETRONET", "PNB", "PVR", "RBLBANK",
-            "SAIL", "SBICARD", "SHREECEM", "SIEMENS", "SRF",
-            "TORNTPHARM", "TRENT", "ZEEL", "ZOMATO",
-            
-            # Small Cap (301-500)
-            "3MINDIA", "AARTIIND", "ABBOTINDIA", "ABFRL", "ACC",
-            "ADANIGREEN", "ADANITRANS", "ADANIPOWER", "AIAENG", "ALKYLAMINE",
-            "AMBUJACEM", "APOLLOTYRE", "ASHOKLEY", "ASTRAL", "AUBANK",
-            "AUROPHARMA", "BALRAMCHIN", "BANDHANBNK", "BATAINDIA", "BAYERCROP",
-            "BEL", "BEML", "BHEL", "BIOCON", "BOSCHLTD",
-            "BSE", "CADILAHC", "CANFINHOME", "CHAMBLFERT", "CHOLAFIN",
-            "CIPLA", "COFORGE", "COLPAL", "CONCOR", "CROMPTON",
-            "CUMMINSIND", "DABUR", "DEEPAKFERT", "DIVISLAB", "DLF",
-            "DMART", "DRREDDY", "EICHERMOT", "ESCORTS", "EXIDEIND",
-            "FEDERALBNK", "GAIL", "GLENMARK", "GODREJCP", "GRASIM",
-            "HCLTECH", "HDFCAMC", "HDFCLIFE", "HEROMOTOCO", "HINDALCO",
-            "HINDUNILVR", "IBULHSGFIN", "ICICIGI", "ICICIPRULI", "IDFCFIRSTB",
-            "IGL", "INDIGO", "INDUSINDBK", "INFY", "IRCTC",
-            "ITC", "JINDALSTEL", "JSWSTEEL", "JUBLFOOD", "KOTAKBANK",
-            "LALPATHLAB", "LICI", "LT", "LTTS", "LUPIN",
-            "M&M", "M&MFIN", "MARUTI", "MCDOWELL", "MINDTREE",
-            "MOTHERSON", "MPHASIS", "MRF", "MUTHOOTFIN", "NAUKRI",
-            "NESTLEIND", "NMDC", "NTPC", "ONGC", "PAGEIND",
-            "PEL", "PETRONET", "PIDILITIND", "PNB", "POWERGRID",
-            "PVR", "RBLBANK", "RELIANCE", "SAIL", "SBICARD",
-            "SBILIFE", "SBIN", "SHREECEM", "SIEMENS", "SRF",
-            "SUNPHARMA", "TATACONSUM", "TATAMOTORS", "TATASTEEL", "TCS",
-            "TECHM", "TITAN", "TORNTPHARM", "TRENT", "ULTRACEMCO",
-            "UPL", "VEDL", "WIPRO", "ZEEL", "ZOMATO",
-            "3MINDIA", "AARTIIND", "ACC", "AIAENG", "ALKYLAMINE",
-            "AMBUJACEM", "APOLLOTYRE", "ASHOKLEY", "ASTRAL", "AUBANK",
-            "AUROPHARMA", "BALRAMCHIN", "BANDHANBNK", "BATAINDIA", "BAYERCROP",
-            "BEL", "BEML", "BHEL", "BSE", "CADILAHC",
-            "CANFINHOME", "CHAMBLFERT", "CHOLAFIN", "COFORGE", "CONCOR",
-            "CROMPTON", "CUMMINSIND", "DEEPAKFERT", "ESCORTS", "EXIDEIND",
-            "FEDERALBNK", "GAIL", "GLENMARK", "HDFCAMC", "IBULHSGFIN",
-            "ICICIGI", "ICICIPRULI", "IDFCFIRSTB", "IGL", "INDIGO",
-            "IRCTC", "JUBLFOOD", "KOTAKBANK", "LALPATHLAB", "LTTS",
-            "LUPIN", "M&MFIN", "MINDTREE", "MOTHERSON", "MPHASIS",
-            "MRF", "MUTHOOTFIN", "NAUKRI", "NMDC", "PAGEIND",
-            "PEL", "PETRONET", "PNB", "PVR", "RBLBANK",
-            "SAIL", "SBICARD", "SHREECEM", "SIEMENS", "SRF",
-            "TORNTPHARM", "TRENT", "ZEEL", "ZOMATO"
+            "ONGC", "TATAMOTORS", "NTPC", "AXISBANK", "NESTLEIND"
         ]
-        
-        # Keep original list for backward compatibility
-        self.top_200_universe = self.top_500_universe[:200]
+    
+    def _get_universe_from_db(self, market_cap_tier: str = "all") -> List[str]:
+        """Fetch universe symbols from database with caching"""
+        try:
+            # Check cache first
+            current_time = time.time()
+            cache_key = f"universe_{market_cap_tier}"
+            
+            if (self._cache_timestamp and 
+                current_time - self._cache_timestamp < self._cache_duration and 
+                cache_key in self._universe_cache):
+                logger.debug(f"Using cached universe for {market_cap_tier}")
+                return self._universe_cache[cache_key]
+            
+            # Fetch from database
+            logger.info(f"Fetching universe from database for tier: {market_cap_tier}")
+            
+            if market_cap_tier == "all":
+                result = firestore_client.list_stocks(is_active=True, limit=10000)
+                stocks = result.get("stocks", [])
+            else:
+                # For specific tiers, we'll use all stocks and let the calling method filter
+                result = firestore_client.list_stocks(is_active=True, limit=10000)
+                stocks = result.get("stocks", [])
+            
+            # Extract symbols
+            symbols = [stock.get("symbol") for stock in stocks if stock.get("symbol")]
+            
+            # Update cache
+            self._universe_cache[cache_key] = symbols
+            self._cache_timestamp = current_time
+            
+            logger.info(f"Fetched {len(symbols)} symbols from database for {market_cap_tier}")
+            return symbols
+            
+        except Exception as e:
+            logger.error(f"Error fetching universe from database: {e}")
+            # Fallback to minimal emergency list
+            logger.warning("Falling back to emergency universe")
+            return self._fallback_universe
     
     def get_universe_symbols(self, limit: int = 200) -> List[str]:
         """Get the stock universe for analysis (backward compatibility)"""
-        return self.top_200_universe[:limit]
+        try:
+            # Try to get from database first
+            symbols = self._get_universe_from_db("all")
+            return symbols[:limit]
+        except Exception as e:
+            logger.error(f"Error getting universe symbols: {e}")
+            # Fallback to emergency list
+            return self._fallback_universe[:limit]
     
     def get_expanded_universe_symbols(self, limit: int = 500, market_cap_tier: str = "all") -> List[str]:
-        """Get expanded universe with market cap filtering"""
-        if market_cap_tier == "large_cap":
-            return self.top_500_universe[:100]  # First 100 are large cap
-        elif market_cap_tier == "mid_cap":
-            return self.top_500_universe[100:300]  # Next 200 are mid cap
-        elif market_cap_tier == "small_cap":
-            return self.top_500_universe[300:500]  # Last 200 are small cap
-        else:  # all
-            return self.top_500_universe[:limit]
+        """Get expanded universe with market cap filtering from database"""
+        try:
+            # Get all symbols from database
+            all_symbols = self._get_universe_from_db("all")
+            
+            if market_cap_tier == "all":
+                return all_symbols[:limit]
+            else:
+                # For now, we don't have market cap data in our stocks table
+                # So we'll return all symbols and let the calling code handle filtering
+                # In the future, we can add market_cap field to stocks and filter here
+                logger.warning(f"Market cap tier filtering not implemented yet, returning all symbols")
+                return all_symbols[:limit]
+                
+        except Exception as e:
+            logger.error(f"Error getting expanded universe symbols: {e}")
+            # Fallback to emergency list
+            return self._fallback_universe[:limit]
     
     def fetch_ohlcv_data(self, symbol: str, days: int = 60, max_retries: int = 3) -> Optional[pd.DataFrame]:
         """
@@ -391,9 +341,14 @@ class StocksService:
         For now, return a subset of universe based on volume/activity
         """
         try:
-            # For demo purposes, return first N stocks from universe
-            # In production, this should fetch from NSE active stocks API
-            trending = self.top_200_universe[:limit]
+            # Get trending stocks from database
+            try:
+                symbols = self._get_universe_from_db("all")
+                trending = symbols[:limit]
+            except Exception as e:
+                logger.error(f"Error fetching trending stocks from DB: {e}")
+                # Fallback to emergency list
+                trending = self._fallback_universe[:limit]
             
             logger.info(f"Fetched {len(trending)} trending stocks")
             return trending
@@ -429,41 +384,264 @@ class StocksService:
             return {}
     
     def get_enhanced_stock_info(self, symbol: str) -> Dict[str, Any]:
-        """Get enhanced stock information with multi-timeframe analysis and enhanced fundamentals"""
+        """Get enhanced stock information with optimized single-pass data fetching"""
         try:
             from app.services.enhanced_indicators import enhanced_technical
             from app.services.enhanced_fundamentals import enhanced_fundamental_analysis
             from app.services.fundamental_scoring import fundamental_scoring
+            from app.db.firestore_client import firestore_client
+            from datetime import datetime, timezone
             
-            # Get basic stock info
-            basic_info = self.get_stock_info(symbol)
-            if not basic_info:
+            # Single data fetch - get all data in one pass
+            ticker_data = self._fetch_all_data_optimized(symbol)
+            if not ticker_data:
                 return {}
             
-            # Get enhanced technical analysis
-            technical_analysis = enhanced_technical.analyze_symbol(symbol, days_back=30)
+            # Process technical analysis from fetched data
+            technical_analysis = self._process_technical_analysis_optimized(ticker_data, symbol)
             
-            # Get enhanced fundamental analysis
-            enhanced_fundamentals = enhanced_fundamental_analysis.fetch_enhanced_fundamentals(symbol)
+            # Process fundamental analysis from fetched data
+            enhanced_fundamentals = self._process_fundamental_analysis_optimized(ticker_data, symbol)
             
             # Calculate fundamental score
             fundamental_score_data = {}
             if enhanced_fundamentals:
                 fundamental_score_data = fundamental_scoring.calculate_fundamental_score(enhanced_fundamentals)
             
-            # Combine basic and enhanced analysis
+            # Store multi-timeframe analysis in database
+            mtf_analysis_id = self._store_multi_timeframe_analysis(symbol, ticker_data, technical_analysis)
+            
+            # Combine all analysis
             enhanced_info = {
-                **basic_info,
+                "symbol": symbol,
+                "ohlcv": ticker_data["ohlcv_60d"],
+                "fundamentals": ticker_data["basic_fundamentals"],
+                "current_price": ticker_data["current_price"],
+                "data_points": len(ticker_data["ohlcv_60d"]) if ticker_data["ohlcv_60d"] is not None else 0,
                 "enhanced_technical": technical_analysis,
                 "enhanced_fundamentals": enhanced_fundamentals,
-                "fundamental_score": fundamental_score_data
+                "fundamental_score": fundamental_score_data,
+                "multi_timeframe_analysis_id": mtf_analysis_id,
+                "data_fetch_optimized": True
             }
             
             return enhanced_info
             
         except Exception as e:
             logger.error(f"Error getting enhanced stock info for {symbol}: {e}")
-            return self.get_stock_info(symbol)  # Fallback to basic info
+            # Fallback to basic data if enhanced fails
+            return self._get_basic_fallback(symbol)
+    
+    def _fetch_all_data_optimized(self, symbol: str) -> Dict[str, Any]:
+        """Fetch all required data in a single optimized pass"""
+        try:
+            # Handle symbol format
+            if not symbol.endswith('.NS'):
+                ticker_symbol = f"{symbol}{self.nse_suffix}"
+            else:
+                ticker_symbol = symbol
+            
+            ticker = yf.Ticker(ticker_symbol)
+            
+            # Rate limiting
+            current_time = time.time()
+            time_since_last_request = current_time - self.last_request_time
+            if time_since_last_request < self.min_request_interval:
+                delay = self.min_request_interval - time_since_last_request + random.uniform(0.2, 0.5)
+                time.sleep(delay)
+            
+            self.last_request_time = time.time()
+            
+            # Fetch all data in parallel where possible
+            logger.info(f"Fetching all data for {symbol} in optimized pass")
+            
+            # Basic data
+            info = ticker.info
+            hist_60d = ticker.history(period="2mo")  # 60 days
+            hist_1d = ticker.history(period="1d")    # Current price
+            
+            # Multi-timeframe data
+            hist_1m = ticker.history(period="7d", interval="1m")
+            hist_5m = ticker.history(period="7d", interval="5m")
+            hist_15m = ticker.history(period="7d", interval="15m")
+            hist_1wk = ticker.history(period="1y", interval="1wk")
+            
+            # Financial statements for enhanced fundamentals
+            financials = ticker.financials
+            balance_sheet = ticker.balance_sheet
+            cash_flow = ticker.cashflow
+            
+            # Process OHLCV data
+            ohlcv_60d = None
+            if not hist_60d.empty and len(hist_60d) >= 30:
+                ohlcv_60d = hist_60d[['Open', 'High', 'Low', 'Close', 'Volume']].tail(60)
+            
+            # Get current price
+            current_price = None
+            if not hist_1d.empty:
+                current_price = float(hist_1d['Close'].iloc[-1])
+            elif ohlcv_60d is not None:
+                current_price = float(ohlcv_60d['Close'].iloc[-1])
+            
+            # Basic fundamentals
+            basic_fundamentals = {}
+            if info:
+                basic_fundamentals = {
+                    "pe": self._safe_get_float(info, "forwardPE") or self._safe_get_float(info, "trailingPE"),
+                    "pb": self._safe_get_float(info, "priceToBook"),
+                    "roe": self._safe_get_float(info, "returnOnEquity"),
+                    "eps_ttm": self._safe_get_float(info, "trailingEps"),
+                    "market_cap_cr": self._safe_get_float(info, "marketCap", convert_to_cr=True)
+                }
+            
+            return {
+                "ohlcv_60d": ohlcv_60d,
+                "ohlcv_1m": hist_1m if not hist_1m.empty else None,
+                "ohlcv_5m": hist_5m if not hist_5m.empty else None,
+                "ohlcv_15m": hist_15m if not hist_15m.empty else None,
+                "ohlcv_1d": hist_60d if not hist_60d.empty else None,
+                "ohlcv_1wk": hist_1wk if not hist_1wk.empty else None,
+                "current_price": current_price,
+                "basic_fundamentals": basic_fundamentals,
+                "info": info,
+                "financials": financials,
+                "balance_sheet": balance_sheet,
+                "cash_flow": cash_flow
+            }
+            
+        except Exception as e:
+            logger.error(f"Error in optimized data fetch for {symbol}: {e}")
+            return {}
+    
+    def _process_technical_analysis_optimized(self, ticker_data: Dict[str, Any], symbol: str) -> Dict[str, Any]:
+        """Process technical analysis from pre-fetched data"""
+        try:
+            from app.services.enhanced_indicators import enhanced_technical
+            
+            # Use the existing enhanced technical analysis but with pre-fetched data
+            # We'll modify the enhanced_indicators to accept pre-fetched data
+            ohlcv_60d = ticker_data.get("ohlcv_60d")
+            if ohlcv_60d is None or ohlcv_60d.empty:
+                return {}
+            
+            # Create multi-timeframe data structure for enhanced_indicators
+            mtf_data = {
+                '1m': ticker_data.get("ohlcv_1m"),
+                '5m': ticker_data.get("ohlcv_5m"),
+                '15m': ticker_data.get("ohlcv_15m"),
+                '1d': ticker_data.get("ohlcv_1d"),
+                '1wk': ticker_data.get("ohlcv_1wk")
+            }
+            
+            # Process technical analysis with pre-fetched data
+            technical_analysis = enhanced_technical._analyze_with_prefetched_data(symbol, ohlcv_60d, mtf_data)
+            
+            return technical_analysis
+            
+        except Exception as e:
+            logger.error(f"Error processing technical analysis for {symbol}: {e}")
+            return {}
+    
+    def _process_fundamental_analysis_optimized(self, ticker_data: Dict[str, Any], symbol: str) -> Dict[str, Any]:
+        """Process fundamental analysis from pre-fetched data"""
+        try:
+            from app.services.enhanced_fundamentals import enhanced_fundamental_analysis
+            
+            # Use pre-fetched data for enhanced fundamentals
+            info = ticker_data.get("info", {})
+            financials = ticker_data.get("financials")
+            balance_sheet = ticker_data.get("balance_sheet")
+            cash_flow = ticker_data.get("cash_flow")
+            
+            if not info:
+                return {}
+            
+            # Process enhanced fundamentals with pre-fetched data
+            enhanced_fundamentals = enhanced_fundamental_analysis._process_with_prefetched_data(
+                symbol, info, financials, balance_sheet, cash_flow
+            )
+            
+            return enhanced_fundamentals
+            
+        except Exception as e:
+            logger.error(f"Error processing fundamental analysis for {symbol}: {e}")
+            return {}
+    
+    def _store_multi_timeframe_analysis(self, symbol: str, ticker_data: Dict[str, Any], technical_analysis: Dict[str, Any]) -> str:
+        """Store multi-timeframe analysis in database"""
+        try:
+            from app.db.firestore_client import firestore_client
+            from datetime import datetime, timezone
+            import uuid
+            
+            analysis_id = str(uuid.uuid4())
+            now = datetime.now(timezone.utc)
+            
+            # Prepare multi-timeframe data
+            timeframes = {}
+            for tf_name in ['1m', '5m', '15m', '1d', '1wk']:
+                ohlcv_data = ticker_data.get(f"ohlcv_{tf_name}")
+                if ohlcv_data is not None and not ohlcv_data.empty:
+                    timeframes[tf_name] = {
+                        "timeframe": tf_name,
+                        "data": ohlcv_data.to_dict('records'),
+                        "last_updated": now.isoformat(),
+                        "data_points": len(ohlcv_data)
+                    }
+            
+            # Create multi-timeframe analysis document
+            mtf_analysis = {
+                "symbol": symbol,
+                "analysis_id": analysis_id,
+                "created_at": now.isoformat(),
+                "updated_at": now.isoformat(),
+                "timeframes": timeframes,
+                "technical_indicators": technical_analysis.get("technical_indicators", {}),
+                "trend_alignment": technical_analysis.get("trend_alignment", {}),
+                "momentum_scores": technical_analysis.get("momentum_scores", {}),
+                "divergence_signals": technical_analysis.get("divergence_signals", {}),
+                "volume_analysis": technical_analysis.get("volume_analysis", {}),
+                "mtf_score": technical_analysis.get("mtf_score"),
+                "mtf_confidence": technical_analysis.get("mtf_confidence"),
+                "mtf_strength": technical_analysis.get("mtf_strength"),
+                "analysis_version": "1.0",
+                "data_quality": "good"
+            }
+            
+            # Store in database
+            firestore_client.create_multi_timeframe_analysis(mtf_analysis)
+            
+            logger.info(f"Stored multi-timeframe analysis {analysis_id} for {symbol}")
+            return analysis_id
+            
+        except Exception as e:
+            logger.error(f"Error storing multi-timeframe analysis for {symbol}: {e}")
+            return ""
+    
+    def _get_basic_fallback(self, symbol: str) -> Dict[str, Any]:
+        """Fallback to basic data if enhanced analysis fails"""
+        try:
+            # Simple fallback - just get basic data
+            ohlcv = self.fetch_ohlcv_data(symbol, days=60)
+            fundamentals = self.fetch_fundamentals(symbol)
+            current_price = self.get_current_price(symbol)
+            
+            return {
+                "symbol": symbol,
+                "ohlcv": ohlcv,
+                "fundamentals": fundamentals,
+                "current_price": current_price,
+                "data_points": len(ohlcv) if ohlcv is not None else 0,
+                "enhanced_technical": {},
+                "enhanced_fundamentals": {},
+                "fundamental_score": {},
+                "multi_timeframe_analysis_id": "",
+                "data_fetch_optimized": False
+            }
+            
+        except Exception as e:
+            logger.error(f"Error in basic fallback for {symbol}: {e}")
+            return {}
 
 # Singleton instance
 stocks_service = StocksService()

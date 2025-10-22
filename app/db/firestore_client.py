@@ -40,6 +40,148 @@ class FirestoreClient:
         data["meta"] = meta
         return data
 
+    # Multi-timeframe Analysis collection methods
+    def create_multi_timeframe_analysis(self, analysis_data: Dict[str, Any]) -> str:
+        """Create a new multi-timeframe analysis document"""
+        try:
+            self._check_connection()
+            analysis_id = analysis_data.get("analysis_id", str(uuid.uuid4()))
+            
+            doc_ref = self.db.collection("multi_timeframe_analyses").document(analysis_id)
+            doc_ref.set(analysis_data)
+            
+            logger.info(f"Created multi-timeframe analysis {analysis_id} for {analysis_data.get('symbol', 'unknown')}")
+            return analysis_id
+            
+        except Exception as e:
+            logger.error(f"Error creating multi-timeframe analysis: {e}")
+            raise
+    
+    def get_multi_timeframe_analysis(self, analysis_id: str) -> Optional[Dict[str, Any]]:
+        """Get a multi-timeframe analysis by ID"""
+        try:
+            self._check_connection()
+            doc_ref = self.db.collection("multi_timeframe_analyses").document(analysis_id)
+            doc = doc_ref.get()
+            
+            if doc.exists:
+                return doc.to_dict()
+            return None
+            
+        except Exception as e:
+            logger.error(f"Error getting multi-timeframe analysis {analysis_id}: {e}")
+            return None
+    
+    def get_latest_multi_timeframe_analysis(self, symbol: str) -> Optional[Dict[str, Any]]:
+        """Get the latest multi-timeframe analysis for a symbol"""
+        try:
+            self._check_connection()
+            query = (self.db.collection("multi_timeframe_analyses")
+                    .where("symbol", "==", symbol)
+                    .order_by("created_at", direction=firestore.Query.DESCENDING)
+                    .limit(1))
+            
+            docs = query.stream()
+            for doc in docs:
+                return doc.to_dict()
+            return None
+            
+        except Exception as e:
+            logger.error(f"Error getting latest multi-timeframe analysis for {symbol}: {e}")
+            return None
+    
+    def list_multi_timeframe_analyses(self, symbol: Optional[str] = None, limit: int = 50) -> List[Dict[str, Any]]:
+        """List multi-timeframe analyses with optional symbol filter"""
+        try:
+            self._check_connection()
+            query = self.db.collection("multi_timeframe_analyses")
+            
+            if symbol:
+                query = query.where("symbol", "==", symbol)
+            
+            query = query.order_by("created_at", direction=firestore.Query.DESCENDING).limit(limit)
+            
+            analyses = []
+            for doc in query.stream():
+                analyses.append(doc.to_dict())
+            
+            return analyses
+            
+        except Exception as e:
+            logger.error(f"Error listing multi-timeframe analyses: {e}")
+            return []
+
+    # Hot Stock Analysis collection methods
+    def create_hot_stock_analysis(self, analysis_data: Dict[str, Any]) -> str:
+        """Create a new hot stock analysis document"""
+        try:
+            self._check_connection()
+            analysis_id = analysis_data.get("analysis_id", str(uuid.uuid4()))
+            
+            doc_ref = self.db.collection("hot_stock_analyses").document(analysis_id)
+            doc_ref.set(analysis_data)
+            
+            logger.info(f"Created hot stock analysis {analysis_id} for {analysis_data.get('symbol', 'unknown')}")
+            return analysis_id
+            
+        except Exception as e:
+            logger.error(f"Error creating hot stock analysis: {e}")
+            raise
+    
+    def get_hot_stock_analysis(self, analysis_id: str) -> Optional[Dict[str, Any]]:
+        """Get a hot stock analysis by ID"""
+        try:
+            self._check_connection()
+            doc_ref = self.db.collection("hot_stock_analyses").document(analysis_id)
+            doc = doc_ref.get()
+            
+            if doc.exists:
+                return doc.to_dict()
+            return None
+            
+        except Exception as e:
+            logger.error(f"Error getting hot stock analysis {analysis_id}: {e}")
+            return None
+    
+    def get_latest_hot_stock_analysis(self, symbol: str) -> Optional[Dict[str, Any]]:
+        """Get the latest hot stock analysis for a symbol"""
+        try:
+            self._check_connection()
+            query = (self.db.collection("hot_stock_analyses")
+                    .where("symbol", "==", symbol)
+                    .order_by("created_at", direction=firestore.Query.DESCENDING)
+                    .limit(1))
+            
+            docs = query.stream()
+            for doc in docs:
+                return doc.to_dict()
+            return None
+            
+        except Exception as e:
+            logger.error(f"Error getting latest hot stock analysis for {symbol}: {e}")
+            return None
+    
+    def list_hot_stock_analyses(self, symbol: Optional[str] = None, limit: int = 50) -> List[Dict[str, Any]]:
+        """List hot stock analyses with optional symbol filter"""
+        try:
+            self._check_connection()
+            query = self.db.collection("hot_stock_analyses")
+            
+            if symbol:
+                query = query.where("symbol", "==", symbol)
+            
+            query = query.order_by("created_at", direction=firestore.Query.DESCENDING).limit(limit)
+            
+            analyses = []
+            for doc in query.stream():
+                analyses.append(doc.to_dict())
+            
+            return analyses
+            
+        except Exception as e:
+            logger.error(f"Error listing hot stock analyses: {e}")
+            return []
+
     # Signals collection methods
     def create_signal(self, signal_data: Dict[str, Any]) -> str:
         """Create a new signal document"""
@@ -1031,6 +1173,360 @@ class FirestoreClient:
             return True
         except Exception as e:
             logger.error(f"Failed to delete portfolio suggestion {suggestion_id}: {e}")
+            return False
+
+    # ===== STOCKS COLLECTION METHODS =====
+    
+    def create_stock(self, stock_data: Dict[str, Any]) -> str:
+        """Create a new stock"""
+        try:
+            self._check_connection()
+            stock_id = str(uuid.uuid4())
+            stock_data["id"] = stock_id
+            stock_data["created_at"] = datetime.now(timezone.utc).isoformat()
+            stock_data["updated_at"] = datetime.now(timezone.utc).isoformat()
+            
+            # Set default values
+            if "is_active" not in stock_data:
+                stock_data["is_active"] = True
+            
+            doc_ref = self.db.collection("stocks").document(stock_id)
+            doc_ref.set(stock_data)
+            
+            logger.info(f"Created stock: {stock_id} for symbol: {stock_data.get('symbol')}")
+            return stock_id
+        except Exception as e:
+            logger.error(f"Failed to create stock: {e}")
+            raise
+
+    def get_stock(self, stock_id: str) -> Optional[Dict[str, Any]]:
+        """Get a stock by ID"""
+        try:
+            self._check_connection()
+            doc_ref = self.db.collection("stocks").document(stock_id)
+            doc = doc_ref.get()
+            
+            if doc.exists:
+                return doc.to_dict()
+            return None
+        except Exception as e:
+            logger.error(f"Failed to get stock {stock_id}: {e}")
+            raise
+
+    def get_stock_by_symbol(self, symbol: str) -> Optional[Dict[str, Any]]:
+        """Get a stock by symbol"""
+        try:
+            self._check_connection()
+            query = self.db.collection("stocks").where(filter=FieldFilter("symbol", "==", symbol))
+            docs = list(query.stream())
+            
+            if docs:
+                return docs[0].to_dict()
+            return None
+        except Exception as e:
+            logger.error(f"Failed to get stock by symbol {symbol}: {e}")
+            raise
+
+    def update_stock(self, stock_id: str, updates: Dict[str, Any]) -> bool:
+        """Update a stock"""
+        try:
+            self._check_connection()
+            updates["updated_at"] = datetime.now(timezone.utc).isoformat()
+            
+            doc_ref = self.db.collection("stocks").document(stock_id)
+            doc_ref.update(updates)
+            
+            logger.info(f"Updated stock: {stock_id}")
+            return True
+        except Exception as e:
+            logger.error(f"Failed to update stock {stock_id}: {e}")
+            return False
+
+    def delete_stock(self, stock_id: str) -> bool:
+        """Delete a stock (soft delete by setting is_active=False)"""
+        try:
+            self._check_connection()
+            doc_ref = self.db.collection("stocks").document(stock_id)
+            doc_ref.update({
+                "is_active": False,
+                "updated_at": datetime.now(timezone.utc).isoformat()
+            })
+            
+            logger.info(f"Soft deleted stock: {stock_id}")
+            return True
+        except Exception as e:
+            logger.error(f"Failed to delete stock {stock_id}: {e}")
+            return False
+
+    def list_stocks(self, industry: Optional[str] = None, is_active: bool = True, 
+                   limit: int = 50, offset: int = 0) -> Dict[str, Any]:
+        """List stocks with optional filtering"""
+        try:
+            self._check_connection()
+            query = self.db.collection("stocks")
+            
+            # Apply filters
+            if is_active is not None:
+                query = query.where(filter=FieldFilter("is_active", "==", is_active))
+            
+            if industry:
+                query = query.where(filter=FieldFilter("industry", "==", industry))
+            
+            # Get all documents and sort in memory to avoid index requirements
+            docs = list(query.stream())
+            stocks = [doc.to_dict() for doc in docs]
+            
+            # Sort by company_name
+            stocks.sort(key=lambda x: x.get("company_name", ""))
+            
+            # Apply pagination
+            total = len(stocks)
+            start_idx = offset
+            end_idx = offset + limit
+            paginated_stocks = stocks[start_idx:end_idx]
+            
+            return {
+                "stocks": paginated_stocks,
+                "total": total,
+                "page": (offset // limit) + 1,
+                "limit": limit,
+                "has_more": end_idx < total
+            }
+        except Exception as e:
+            logger.error(f"Failed to list stocks: {e}")
+            raise
+
+    def search_stocks(self, search_term: str, limit: int = 20) -> List[Dict[str, Any]]:
+        """Search stocks by company name or symbol"""
+        try:
+            self._check_connection()
+            # Get all active stocks
+            query = self.db.collection("stocks").where(filter=FieldFilter("is_active", "==", True))
+            docs = list(query.stream())
+            stocks = [doc.to_dict() for doc in docs]
+            
+            # Filter in memory (case-insensitive search)
+            search_term_lower = search_term.lower()
+            filtered_stocks = []
+            
+            for stock in stocks:
+                company_name = stock.get("company_name", "").lower()
+                symbol = stock.get("symbol", "").lower()
+                
+                if (search_term_lower in company_name or 
+                    search_term_lower in symbol):
+                    filtered_stocks.append(stock)
+            
+            # Sort by relevance (exact symbol match first, then company name)
+            filtered_stocks.sort(key=lambda x: (
+                0 if x.get("symbol", "").lower() == search_term_lower else
+                1 if search_term_lower in x.get("symbol", "").lower() else
+                2
+            ))
+            
+            return filtered_stocks[:limit]
+        except Exception as e:
+            logger.error(f"Failed to search stocks: {e}")
+            raise
+
+    def bulk_create_stocks(self, stocks_data: List[Dict[str, Any]]) -> Dict[str, Any]:
+        """Bulk create stocks (for initial data population)"""
+        try:
+            self._check_connection()
+            created_count = 0
+            failed_count = 0
+            errors = []
+            
+            # Use batch writes for efficiency
+            batch = self.db.batch()
+            batch_size = 500  # Firestore batch limit
+            
+            for i, stock_data in enumerate(stocks_data):
+                try:
+                    stock_id = str(uuid.uuid4())
+                    stock_data["id"] = stock_id
+                    stock_data["created_at"] = datetime.now(timezone.utc).isoformat()
+                    stock_data["updated_at"] = datetime.now(timezone.utc).isoformat()
+                    
+                    if "is_active" not in stock_data:
+                        stock_data["is_active"] = True
+                    
+                    doc_ref = self.db.collection("stocks").document(stock_id)
+                    batch.set(doc_ref, stock_data)
+                    
+                    # Commit batch when it reaches the limit
+                    if (i + 1) % batch_size == 0:
+                        batch.commit()
+                        batch = self.db.batch()
+                        logger.info(f"Committed batch: {i + 1} stocks processed")
+                    
+                    created_count += 1
+                    
+                except Exception as e:
+                    failed_count += 1
+                    errors.append(f"Stock {stock_data.get('symbol', 'unknown')}: {str(e)}")
+                    logger.error(f"Failed to prepare stock {stock_data.get('symbol')}: {e}")
+            
+            # Commit remaining batch
+            if created_count % batch_size != 0:
+                batch.commit()
+            
+            logger.info(f"Bulk create completed: {created_count} created, {failed_count} failed")
+            
+            return {
+                "created_count": created_count,
+                "failed_count": failed_count,
+                "errors": errors[:10]  # Limit error details
+            }
+        except Exception as e:
+            logger.error(f"Failed to bulk create stocks: {e}")
+            raise
+
+    def get_stocks_by_industry(self, industry: str) -> List[Dict[str, Any]]:
+        """Get all stocks in a specific industry"""
+        try:
+            self._check_connection()
+            query = (self.db.collection("stocks")
+                    .where(filter=FieldFilter("industry", "==", industry))
+                    .where(filter=FieldFilter("is_active", "==", True)))
+            
+            docs = list(query.stream())
+            stocks = [doc.to_dict() for doc in docs]
+            
+            # Sort by company name
+            stocks.sort(key=lambda x: x.get("company_name", ""))
+            
+            return stocks
+        except Exception as e:
+            logger.error(f"Failed to get stocks by industry {industry}: {e}")
+            raise
+
+    def get_all_industries(self) -> List[str]:
+        """Get list of all unique industries"""
+        try:
+            self._check_connection()
+            query = self.db.collection("stocks").where(filter=FieldFilter("is_active", "==", True))
+            docs = list(query.stream())
+            
+            industries = set()
+            for doc in docs:
+                stock_data = doc.to_dict()
+                industry = stock_data.get("industry")
+                if industry:
+                    industries.add(industry)
+            
+            return sorted(list(industries))
+        except Exception as e:
+            logger.error(f"Failed to get industries: {e}")
+            raise
+
+    # Hot Stocks Runs collection methods
+    def create_hot_stocks_run(self, run_data: Dict[str, Any]) -> str:
+        """Create a new hot stocks run document"""
+        try:
+            self._check_connection()
+            run_id = str(uuid.uuid4())
+            run_data["run_id"] = run_id
+            
+            # Add meta information
+            run_data = self._add_meta(run_data)
+            
+            doc_ref = self.db.collection("hot_stocks_runs").document(run_id)
+            doc_ref.set(run_data)
+            
+            logger.info(f"Created hot stocks run: {run_id} with {len(run_data.get('hot_stocks', []))} stocks")
+            return run_id
+        except Exception as e:
+            logger.error(f"Failed to create hot stocks run: {e}")
+            raise
+
+    def get_hot_stocks_run(self, run_id: str) -> Optional[Dict[str, Any]]:
+        """Get a hot stocks run by ID"""
+        try:
+            self._check_connection()
+            doc_ref = self.db.collection("hot_stocks_runs").document(run_id)
+            doc = doc_ref.get()
+            
+            if doc.exists:
+                return doc.to_dict()
+            return None
+        except Exception as e:
+            logger.error(f"Failed to get hot stocks run {run_id}: {e}")
+            raise
+
+    def get_latest_hot_stocks_run(self) -> Optional[Dict[str, Any]]:
+        """Get the latest hot stocks run"""
+        try:
+            self._check_connection()
+            # Try ordering by created_at first (more reliable)
+            query = (self.db.collection("hot_stocks_runs")
+                    .order_by("created_at", direction=firestore.Query.DESCENDING)
+                    .limit(1))
+            
+            docs = list(query.stream())
+            if docs:
+                return docs[0].to_dict()
+            
+            # Fallback to run_timestamp if created_at doesn't work
+            query = (self.db.collection("hot_stocks_runs")
+                    .order_by("run_timestamp", direction=firestore.Query.DESCENDING)
+                    .limit(1))
+            
+            docs = list(query.stream())
+            if docs:
+                return docs[0].to_dict()
+            
+            return None
+        except Exception as e:
+            logger.error(f"Failed to get latest hot stocks run: {e}")
+            raise
+
+    def list_hot_stocks_runs(self, limit: int = 50, start_date: Optional[str] = None, end_date: Optional[str] = None) -> List[Dict[str, Any]]:
+        """List hot stocks runs with optional date filtering"""
+        try:
+            self._check_connection()
+            query = self.db.collection("hot_stocks_runs").order_by("run_timestamp", direction=firestore.Query.DESCENDING)
+            
+            # Apply date filters if provided
+            if start_date:
+                query = query.where("run_timestamp", ">=", start_date)
+            if end_date:
+                query = query.where("run_timestamp", "<=", end_date)
+            
+            query = query.limit(limit)
+            docs = list(query.stream())
+            
+            return [doc.to_dict() for doc in docs]
+        except Exception as e:
+            logger.error(f"Error listing hot stocks runs: {e}")
+            return []
+
+    def get_hot_stocks_runs_by_date_range(self, start_date: str, end_date: str) -> List[Dict[str, Any]]:
+        """Get hot stocks runs within a date range"""
+        try:
+            self._check_connection()
+            query = (self.db.collection("hot_stocks_runs")
+                    .where("run_timestamp", ">=", start_date)
+                    .where("run_timestamp", "<=", end_date)
+                    .order_by("run_timestamp", direction=firestore.Query.DESCENDING))
+            
+            docs = list(query.stream())
+            return [doc.to_dict() for doc in docs]
+        except Exception as e:
+            logger.error(f"Error getting hot stocks runs by date range: {e}")
+            return []
+
+    def delete_hot_stocks_run(self, run_id: str) -> bool:
+        """Delete a hot stocks run"""
+        try:
+            self._check_connection()
+            doc_ref = self.db.collection("hot_stocks_runs").document(run_id)
+            doc_ref.delete()
+            
+            logger.info(f"Deleted hot stocks run: {run_id}")
+            return True
+        except Exception as e:
+            logger.error(f"Failed to delete hot stocks run {run_id}: {e}")
             return False
 
 # Singleton instance

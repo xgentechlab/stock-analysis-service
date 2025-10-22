@@ -9,7 +9,7 @@ load_dotenv()
 class Settings(BaseSettings):
     # Environment
     environment: str = os.getenv("ENVIRONMENT", "development")
-    debug: bool = False  # Default to False, will be validated below
+    debug: bool = True  # Default to False, will be validated below
     
     @field_validator('debug', mode='before')
     @classmethod
