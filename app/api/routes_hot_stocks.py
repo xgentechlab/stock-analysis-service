@@ -293,26 +293,19 @@ def _compute_signals_for_symbol(symbol: str, use_enhanced_indicators: bool = Tru
                 try:
                     logger.debug(f"[signal-compute] {symbol}: Computing Stage 1 & 2 enhanced analysis")
                     from app.services.stocks import stocks_service
-                    from app.services.enhanced_indicators import enhanced_technical
-                    from app.services.enhanced_fundamentals import enhanced_fundamental_analysis
-                    from app.services.enhanced_scoring import enhanced_scoring
                     
                     # STAGE 1: Enhanced Data Collection and Analysis
                     enhanced_stock_info = stocks_service.get_enhanced_stock_info(symbol)
                     if enhanced_stock_info:
-                        # Get enhanced technical analysis
-                        enhanced_technical_data = enhanced_technical.analyze_symbol(symbol, days_back=30)
-                        
-                        # Get enhanced fundamental analysis
-                        enhanced_fundamentals = enhanced_fundamental_analysis.fetch_enhanced_fundamentals(symbol)
+                        # Use data already fetched in enhanced_stock_info (optimized single-pass)
+                        enhanced_technical_data = enhanced_stock_info.get('enhanced_technical', {})
+                        enhanced_technical_scores = enhanced_stock_info.get('enhanced_technical_scores', {})
+                        enhanced_fundamentals = enhanced_stock_info.get('enhanced_fundamentals', {})
+                        enhanced_fundamental_score_data = enhanced_stock_info.get('fundamental_score', {})
                         
                         # STAGE 2: Enhanced Technical and Combined Scoring
-                        if enhanced_technical_data:
-                            # Calculate enhanced technical scoring
-                            enhanced_technical_scores = enhanced_scoring.calculate_enhanced_score(enhanced_technical_data)
-                            
-                            # Get enhanced fundamental score
-                            enhanced_fundamental_score_data = enhanced_stock_info.get('fundamental_score', {})
+                        if enhanced_technical_data and enhanced_technical_scores:
+                            # Use pre-calculated technical scores (optimized)
                             enhanced_fundamental_score = enhanced_fundamental_score_data.get('final_score', 0.0)
                             enhanced_technical_score = enhanced_technical_scores.get('final_score', 0.0)
                             

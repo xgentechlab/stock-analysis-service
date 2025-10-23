@@ -397,8 +397,10 @@ class StocksService:
             if not ticker_data:
                 return {}
             
-            # Process technical analysis from fetched data
-            technical_analysis = self._process_technical_analysis_optimized(ticker_data, symbol)
+            # Process technical analysis from fetched data (now includes scores)
+            technical_analysis_result = self._process_technical_analysis_optimized(ticker_data, symbol)
+            technical_indicators = technical_analysis_result.get("technical_indicators", {})
+            technical_scores = technical_analysis_result.get("technical_scores", {})
             
             # Process fundamental analysis from fetched data
             enhanced_fundamentals = self._process_fundamental_analysis_optimized(ticker_data, symbol)
@@ -409,7 +411,7 @@ class StocksService:
                 fundamental_score_data = fundamental_scoring.calculate_fundamental_score(enhanced_fundamentals)
             
             # Store multi-timeframe analysis in database
-            mtf_analysis_id = self._store_multi_timeframe_analysis(symbol, ticker_data, technical_analysis)
+            mtf_analysis_id = self._store_multi_timeframe_analysis(symbol, ticker_data, technical_indicators)
             
             # Combine all analysis
             enhanced_info = {
@@ -418,7 +420,8 @@ class StocksService:
                 "fundamentals": ticker_data["basic_fundamentals"],
                 "current_price": ticker_data["current_price"],
                 "data_points": len(ticker_data["ohlcv_60d"]) if ticker_data["ohlcv_60d"] is not None else 0,
-                "enhanced_technical": technical_analysis,
+                "enhanced_technical": technical_indicators,
+                "enhanced_technical_scores": technical_scores,
                 "enhanced_fundamentals": enhanced_fundamentals,
                 "fundamental_score": fundamental_score_data,
                 "multi_timeframe_analysis_id": mtf_analysis_id,
@@ -517,6 +520,7 @@ class StocksService:
         """Process technical analysis from pre-fetched data"""
         try:
             from app.services.enhanced_indicators import enhanced_technical
+            from app.services.enhanced_scoring import enhanced_scoring
             
             # Use the existing enhanced technical analysis but with pre-fetched data
             # We'll modify the enhanced_indicators to accept pre-fetched data
@@ -536,7 +540,20 @@ class StocksService:
             # Process technical analysis with pre-fetched data
             technical_analysis = enhanced_technical._analyze_with_prefetched_data(symbol, ohlcv_60d, mtf_data)
             
-            return technical_analysis
+            # Calculate technical scores (same as in hot stocks endpoint)
+            technical_scores = {}
+            if technical_analysis:
+                try:
+                    technical_scores = enhanced_scoring.calculate_enhanced_score(technical_analysis)
+                except Exception as e:
+                    logger.warning(f"Error calculating technical scores for {symbol}: {e}")
+                    technical_scores = {}
+            
+            # Return both technical analysis and scores
+            return {
+                "technical_indicators": technical_analysis,
+                "technical_scores": technical_scores
+            }
             
         except Exception as e:
             logger.error(f"Error processing technical analysis for {symbol}: {e}")
