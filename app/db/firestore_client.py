@@ -481,41 +481,18 @@ class FirestoreClient:
                 logger.info(f"📊 DEBUGGING: Status breakdown for {symbol}: {statuses}")
                 return None
             
-            # Find the analysis with the most complete data
-            best_analysis = None
-            best_data_score = 0
-            
-            logger.info(f"🔍 FIRESTORE: Analyzing {len(docs)} completed jobs for {symbol}")
-            
-            for i, doc in enumerate(docs):
-                analysis = doc.to_dict()
-                stages = analysis.get("stages", {})
-                job_id = analysis.get('job_id', 'unknown')
-                created_at = analysis.get('created_at', 'unknown')
+            # Since query is ordered by created_at DESCENDING, the first job is the latest
+            if docs:
+                latest_analysis = docs[0].to_dict()
+                job_id = latest_analysis.get('job_id', 'unknown')
+                created_at = latest_analysis.get('created_at', 'unknown')
                 
-                # Calculate data completeness score
-                data_score = 0
-                completed_stages = 0
-                for stage_name, stage_data in stages.items():
-                    stage_status = stage_data.get('status', 'unknown')
-                    stage_data_content = stage_data.get("data", {})
-                    if stage_data_content:  # If stage has data
-                        data_score += len(stage_data_content)
-                    if stage_status == 'completed':
-                        completed_stages += 1
-                
-                logger.info(f"  Job {i+1}: ID={job_id}, Created={created_at}, Data Score={data_score}, Completed Stages={completed_stages}")
-                
-                if data_score > best_data_score:
-                    best_data_score = data_score
-                    best_analysis = analysis
-                    logger.info(f"  ✅ NEW BEST: Job {job_id} is now the best analysis (score: {data_score})")
-            
-            if best_analysis:
-                logger.info(f"Found best analysis for {symbol} (type: {analysis_type}) - created: {best_analysis.get('created_at')}, data score: {best_data_score}")
-                return best_analysis
+                logger.info(f"🔍 FIRESTORE: Found {len(docs)} completed jobs for {symbol}")
+                logger.info(f"  ✅ SELECTED LATEST: Job {job_id} created at {created_at}")
+                logger.info(f"Found latest analysis for {symbol} (type: {analysis_type}) - created: {created_at}")
+                return latest_analysis
             else:
-                logger.info(f"No analysis with data found for {symbol} (type: {analysis_type})")
+                logger.info(f"No completed analysis found for {symbol} (type: {analysis_type})")
                 return None
                 
         except Exception as e:

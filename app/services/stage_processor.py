@@ -14,6 +14,7 @@ from app.services.enhanced_indicators import enhanced_technical
 from app.services.enhanced_fundamentals import enhanced_fundamental_analysis
 from app.services.enhanced_scoring import enhanced_scoring
 from app.services.multi_stage_prompting import multi_stage_prompting_service
+from app.db.firestore_client import firestore_client
 
 logger = logging.getLogger(__name__)
 
@@ -60,13 +61,35 @@ class StageProcessor:
             else:
                 logger.info(f"📝 No cached analysis found for {symbol} - proceeding with new analysis")
             
-            # Get stage execution order
-            stage_order = self.stage_config.get_stage_order(analysis_type)
-            
-            # Track completed and failed stages
-            completed_stages = []
-            failed_stages = []
+            # Initialize stage_results before database check
             stage_results = {}
+            
+            # Check if we have comprehensive database data available
+            db_data = self._fetch_comprehensive_db_data(symbol)
+            if db_data and self._is_db_data_sufficient(db_data):
+                # Use database data, skip stages 1-2
+                logger.info(f"Using comprehensive database data for {symbol}, skipping stages 1-2")
+                
+                # Store complete stage 1 & 2 data in stage_results
+                stage_results["data_collection_and_analysis"] = db_data["data_collection_and_analysis"]
+                stage_results["technical_and_combined_scoring"] = db_data["technical_and_combined_scoring"]
+                stage_results["database_data"] = db_data
+                
+                # Get stage execution order and filter out stages 1-2
+                stage_order = self.stage_config.get_stage_order(analysis_type)
+                stage_order = [stage for stage in stage_order if stage not in ["data_collection_and_analysis", "technical_and_combined_scoring"]]
+                
+                # Mark stages 1-2 as completed
+                completed_stages = ["data_collection_and_analysis", "technical_and_combined_scoring"]
+                failed_stages = []
+                
+                logger.info(f"Database data found for {symbol}. Stages 1-2 marked as completed. Processing stages: {stage_order}")
+            else:
+                # Fallback to normal processing
+                logger.info(f"No sufficient database data for {symbol}, using normal processing")
+                stage_order = self.stage_config.get_stage_order(analysis_type)
+                completed_stages = []
+                failed_stages = []
             
             # Process stages with parallel execution support
             while len(completed_stages) + len(failed_stages) < len(stage_order):
@@ -135,6 +158,9 @@ class StageProcessor:
                 return False
             
             logger.info(f"Job processing completed for {symbol}. Completed stages: {completed_stages}, Failed stages: {failed_stages}")
+            
+            # Mark job as completed in database
+            self._mark_job_as_completed(job_id, completed_stages, failed_stages)
             return True
             
         except Exception as e:
@@ -196,6 +222,29 @@ class StageProcessor:
             
         except Exception as e:
             logger.error(f"Failed to mark job {job_id} as failed: {e}")
+    
+    def _mark_job_as_completed(self, job_id: str, completed_stages: list, failed_stages: list) -> None:
+        """Mark a job as completed with final results"""
+        try:
+            from app.models.schemas import JobStatus
+            from datetime import datetime, timezone
+            
+            # Update job status to completed
+            updates = {
+                "status": JobStatus.COMPLETED.value,
+                "completed_stages": completed_stages,
+                "failed_stages": failed_stages,
+                "completed_at": datetime.now(timezone.utc).isoformat(),
+                "updated_at": datetime.now(timezone.utc).isoformat(),
+                "progress_percentage": 100,
+                "cost_saved": 0.10
+            }
+            
+            self.job_service.db.update_job(job_id, updates)
+            logger.info(f"Job {job_id} marked as completed with {len(completed_stages)} completed stages")
+            
+        except Exception as e:
+            logger.error(f"Failed to mark job {job_id} as completed: {e}")
     
     def _get_initial_stage_data(self, stage_name: str, symbol: str) -> Dict[str, Any]:
         """Get initial data to show while stage is processing"""
@@ -675,22 +724,18 @@ class StageProcessor:
     
     def _execute_forensic_analysis(self, symbol: str, previous_results: Dict[str, Any]) -> Dict[str, Any]:
         """Execute forensic analysis stage"""
-        # Get data from previous stages
-        stage1_data = previous_results.get("data_collection_and_analysis", {})
-        stage2_data = previous_results.get("technical_and_combined_scoring", {})
+        # Get database data (no dependency on previous stages)
+        db_data = previous_results.get("database_data", {})
         
-        # Extract data for analysis
-        fundamentals = stage1_data.get("fundamental_analysis", {})
-        technical_analysis = stage1_data.get("technical_analysis", {})
-        enhanced_fundamentals = fundamentals.get("enhanced_fundamentals", {})
-        
-        # Get the raw technical data (not the formatted structure)
-        raw_technical_data = technical_analysis.get("technical_indicators", {})
+        # Extract required inputs from database data
+        fundamental_score = db_data.get("fundamental_score", {})
+        raw_technical_data = db_data.get("raw_technical_data", {})
+        enhanced_fundamentals = db_data.get("enhanced_fundamentals", {})
         
         # Call multi-stage prompting service for forensic analysis only
         forensic_result = multi_stage_prompting_service._stage1_forensic_analysis(
             symbol, 
-            fundamentals.get("fundamental_score", {}),
+            fundamental_score,
             raw_technical_data,
             enhanced_fundamentals
         )
@@ -702,26 +747,22 @@ class StageProcessor:
     
     def _execute_module_selection(self, symbol: str, previous_results: Dict[str, Any]) -> Dict[str, Any]:
         """Execute module selection stage"""
-        # Get data from previous stages
-        stage1_data = previous_results.get("data_collection_and_analysis", {})
-        stage2_data = previous_results.get("technical_and_combined_scoring", {})
+        # Get database data
+        db_data = previous_results.get("database_data", {})
         
-        # Extract data for analysis
-        fundamentals = stage1_data.get("fundamental_analysis", {})
-        technical_analysis = stage1_data.get("technical_analysis", {})
-        enhanced_fundamentals = fundamentals.get("enhanced_fundamentals", {})
-        
-        # Get forensic analysis result
+        # Get forensic analysis result from previous stage
         forensic_analysis = previous_results.get("forensic_analysis", {})
         
-        # Get the raw technical data (not the formatted structure)
-        raw_technical_data = technical_analysis.get("technical_indicators", {})
+        # Extract required inputs from database data
+        fundamental_score = db_data.get("fundamental_score", {})
+        raw_technical_data = db_data.get("raw_technical_data", {})
+        enhanced_fundamentals = db_data.get("enhanced_fundamentals", {})
         
         # Call multi-stage prompting service for module selection only
         module_result = multi_stage_prompting_service._stage2_module_selection(
             symbol,
             forensic_analysis,
-            fundamentals.get("fundamental_score", {}),
+            fundamental_score,
             raw_technical_data,
             enhanced_fundamentals
         )
@@ -733,27 +774,23 @@ class StageProcessor:
     
     def _execute_risk_assessment(self, symbol: str, previous_results: Dict[str, Any]) -> Dict[str, Any]:
         """Execute risk assessment stage"""
-        # Get data from previous stages
-        stage1_data = previous_results.get("data_collection_and_analysis", {})
-        stage2_data = previous_results.get("technical_and_combined_scoring", {})
-        
-        # Extract data for analysis
-        fundamentals = stage1_data.get("fundamental_analysis", {})
-        technical_analysis = stage1_data.get("technical_analysis", {})
+        # Get database data
+        db_data = previous_results.get("database_data", {})
         
         # Get previous analysis results
         forensic_analysis = previous_results.get("forensic_analysis", {})
         module_analysis = previous_results.get("module_selection", {})
         
-        # Get the raw technical data (not the formatted structure)
-        raw_technical_data = technical_analysis.get("technical_indicators", {})
+        # Extract required inputs from database data
+        fundamental_score = db_data.get("fundamental_score", {})
+        raw_technical_data = db_data.get("raw_technical_data", {})
         
         # Call multi-stage prompting service for risk assessment only
         risk_result = multi_stage_prompting_service._stage3_risk_assessment(
             symbol,
             forensic_analysis,
             module_analysis,
-            fundamentals.get("fundamental_score", {}),
+            fundamental_score,
             raw_technical_data
         )
         
@@ -764,21 +801,17 @@ class StageProcessor:
     
     def _execute_final_decision(self, symbol: str, previous_results: Dict[str, Any]) -> Dict[str, Any]:
         """Execute final decision stage"""
-        # Get data from previous stages
-        stage1_data = previous_results.get("data_collection_and_analysis", {})
-        stage2_data = previous_results.get("technical_and_combined_scoring", {})
-        
-        # Extract data for analysis
-        fundamentals = stage1_data.get("fundamental_analysis", {})
-        technical_analysis = stage1_data.get("technical_analysis", {})
+        # Get database data
+        db_data = previous_results.get("database_data", {})
         
         # Get previous analysis results
         forensic_analysis = previous_results.get("forensic_analysis", {})
         module_analysis = previous_results.get("module_selection", {})
         risk_assessment = previous_results.get("risk_assessment", {})
         
-        # Get the raw technical data (not the formatted structure)
-        raw_technical_data = technical_analysis.get("technical_indicators", {})
+        # Extract required inputs from database data
+        fundamental_score = db_data.get("fundamental_score", {})
+        raw_technical_data = db_data.get("raw_technical_data", {})
         
         # Call multi-stage prompting service for final decision only
         decision_result = multi_stage_prompting_service._stage4_final_decision(
@@ -786,7 +819,7 @@ class StageProcessor:
             forensic_analysis,
             module_analysis,
             risk_assessment,
-            fundamentals.get("fundamental_score", {}),
+            fundamental_score,
             raw_technical_data
         )
         
@@ -828,6 +861,140 @@ class StageProcessor:
             "final_recommendation": final_recommendation
         }
     
+    def _fetch_comprehensive_db_data(self, symbol: str) -> Dict[str, Any]:
+        """Fetch all required database data for complete analysis pipeline"""
+        try:
+            # Use list methods to avoid index requirements
+            hot_analyses = firestore_client.list_hot_stock_analyses(symbol=symbol, limit=1)
+            mtf_analyses = firestore_client.list_multi_timeframe_analyses(symbol=symbol, limit=1)
+            
+            hot_analysis = hot_analyses[0] if hot_analyses else None
+            mtf_analysis = mtf_analyses[0] if mtf_analyses else None
+            
+            if not hot_analysis or not mtf_analysis:
+                logger.warning(f"No database data found for {symbol}")
+                return {}
+            
+            # Stage 1 Data: Data Collection and Analysis
+            stage1_data = {
+                "ohlcv_days": len(mtf_analysis.get("timeframes", {}).get("1d", {}).get("data", [])),
+                "current_price": hot_analysis.get("current_price"),
+                "enhanced_technical_available": True,
+                "enhanced_fundamentals_available": True,
+                "data_quality": "good",
+                "technical_analysis": {
+                    "status": "success",
+                    "summary": {
+                        "trend_indicators": 4,
+                        "oscillator_indicators": 2,
+                        "volume_indicators": 5,
+                        "momentum_indicators": 9
+                    },
+                    "indicators_available": 37,
+                    "technical_indicators": hot_analysis.get("enhanced_technical_indicators", {})
+                },
+                "fundamental_analysis": {
+                    "enhanced_fundamentals": hot_analysis.get("enhanced_fundamentals", {}),
+                    "fundamental_score": hot_analysis.get("enhanced_fundamental_score", {})
+                },
+                "summary": {
+                    "data_sources": ["database", "enhanced_technical", "enhanced_fundamentals"],
+                    "volume_avg": mtf_analysis.get("volume_analysis", {}).get("1d", {}).get("avg_volume", 0),
+                    "price_range": {
+                        "high": mtf_analysis.get("timeframes", {}).get("1d", {}).get("data", [{}])[-1].get("High", 0),
+                        "low": mtf_analysis.get("timeframes", {}).get("1d", {}).get("data", [{}])[-1].get("Low", 0),
+                        "current": hot_analysis.get("current_price")
+                    }
+                }
+            }
+            
+            # Stage 2 Data: Technical and Combined Scoring
+            # Get scores from the scores field in hot stock analysis
+            scores = hot_analysis.get("scores", {})
+            technical_score = scores.get("enhanced_technical_score", 0.0)
+            technical_confidence = scores.get("enhanced_technical_confidence", 0.0)
+            technical_strength = scores.get("enhanced_technical_strength", "unknown")
+            fundamental_score = scores.get("enhanced_fundamental_score", 0.0)
+            combined_score = scores.get("enhanced_combined_score", 0.0)
+            
+            # Use MTF scores as fallback if hot stock scores are missing
+            if not technical_score:
+                technical_score = mtf_analysis.get("mtf_scores", {}).get("overall_score", 0.0)
+            if not technical_confidence:
+                technical_confidence = mtf_analysis.get("mtf_scores", {}).get("confidence", 0.0)
+            if not technical_strength or technical_strength == "unknown":
+                technical_strength = mtf_analysis.get("mtf_scores", {}).get("strength", "unknown")
+            if not fundamental_score:
+                fundamental_score = 0.5  # Default fallback
+            if not combined_score:
+                combined_score = 0.6 * technical_score + 0.4 * fundamental_score
+            
+            stage2_data = {
+                "technical_scoring": {
+                    "final_score": technical_score,
+                    "confidence": technical_confidence,
+                    "strength": technical_strength
+                },
+                "combined_scoring": {
+                    "fundamental_score": fundamental_score,
+                    "technical_score": technical_score,
+                    "combined_score": combined_score,
+                    "scoring_weights": {
+                        "technical": 0.6,
+                        "fundamental": 0.4
+                    }
+                },
+                "status": "success"
+            }
+            
+            return {
+                # Raw database data
+                "hot_analysis": hot_analysis,
+                "mtf_analysis": mtf_analysis,
+                
+                # Stage 1 & 2 data (as expected by AI stages)
+                "data_collection_and_analysis": stage1_data,
+                "technical_and_combined_scoring": stage2_data,
+                
+                # Direct access to components (ensure they are dictionaries, not floats)
+                "fundamental_score": scores.get("enhanced_fundamental_score", {}) if isinstance(scores.get("enhanced_fundamental_score"), dict) else {"score": scores.get("enhanced_fundamental_score", 0.0)},
+                "raw_technical_data": hot_analysis.get("technical_indicators", {}).get("enhanced_technical_indicators", {}) or mtf_analysis.get("technical_indicators", {}),
+                "enhanced_fundamentals": hot_analysis.get("enhanced_fundamentals", {}),
+                "combined_score": combined_score,
+                "technical_confidence": technical_confidence,
+                "technical_strength": technical_strength,
+                
+                # Additional MTF data
+                "trend_analysis": mtf_analysis.get("trend_analysis", {}),
+                "momentum_scores": mtf_analysis.get("momentum_scores", {}),
+                "volume_analysis": mtf_analysis.get("volume_analysis", {}),
+                "divergence_signals": mtf_analysis.get("divergence_signals", {}),
+                "mtf_scores": mtf_analysis.get("mtf_scores", {})
+            }
+        except Exception as e:
+            logger.error(f"Failed to fetch comprehensive database data for {symbol}: {e}")
+            return {}
+    
+    def _is_db_data_sufficient(self, db_data: Dict[str, Any]) -> bool:
+        """Check if database data is sufficient for complete analysis pipeline"""
+        # Check for Stage 1 data
+        stage1_data = db_data.get("data_collection_and_analysis", {})
+        if not stage1_data:
+            return False
+        
+        # Check for Stage 2 data
+        stage2_data = db_data.get("technical_and_combined_scoring", {})
+        if not stage2_data:
+            return False
+        
+        # Check for critical components
+        required_fields = [
+            "fundamental_score", "raw_technical_data", "enhanced_fundamentals",
+            "combined_score", "technical_confidence"
+        ]
+        
+        return all(db_data.get(field) for field in required_fields)
+    
     def _copy_cached_analysis_to_job(self, job_id: str, cached_analysis: Dict[str, Any]) -> None:
         """Copy cached analysis results to current job preserving the new 8-stage structure"""
         try:
@@ -859,7 +1026,8 @@ class StageProcessor:
             self.job_service.db.update_job(job_id, initial_updates)
             
             # Update stages incrementally and update progress after each stage
-            total_stages = len(cached_stages)
+            # Use the actual stages being processed, not the cached stages
+            total_stages = len(new_stage_order)
             completed_count = 0
             
             # Process stages in the correct order

@@ -644,7 +644,7 @@ async def get_hot_stocks(
                 req = JobCreateRequest(symbol=sym, analysis_type=AnalysisType.ENHANCED)
                 # Use cache by default; set force_refresh=False to avoid extra cost
                 logger.info(f"Triggering analysis for {sym}")
-                #analysis_trigger.fire_and_forget(req, force_refresh=False)
+                analysis_trigger.fire_and_forget(req, force_refresh=False)
                 triggered += 1
             except Exception as te:
                 logger.warning(f"[hot-stocks] Failed to trigger analysis for {sym}: {te}")

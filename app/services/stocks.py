@@ -411,7 +411,18 @@ class StocksService:
                 fundamental_score_data = fundamental_scoring.calculate_fundamental_score(enhanced_fundamentals)
             
             # Store multi-timeframe analysis in database
-            mtf_analysis_id = self._store_multi_timeframe_analysis(symbol, ticker_data, technical_indicators)
+            # Create proper multi-timeframe analysis structure
+            mtf_analysis_data = {
+                "technical_indicators": technical_indicators,
+                "trend_alignment": technical_analysis_result.get("trend_alignment", {}),
+                "momentum_scores": technical_analysis_result.get("momentum_scores", {}),
+                "divergence_signals": technical_analysis_result.get("divergence_signals", {}),
+                "volume_analysis": technical_analysis_result.get("volume_analysis", {}),
+                "mtf_score": technical_analysis_result.get("mtf_score"),
+                "mtf_confidence": technical_analysis_result.get("mtf_confidence"),
+                "mtf_strength": technical_analysis_result.get("mtf_strength")
+            }
+            mtf_analysis_id = self._store_multi_timeframe_analysis(symbol, ticker_data, mtf_analysis_data)
             
             # Combine all analysis
             enhanced_info = {
@@ -549,10 +560,26 @@ class StocksService:
                     logger.warning(f"Error calculating technical scores for {symbol}: {e}")
                     technical_scores = {}
             
-            # Return both technical analysis and scores
+            # Calculate additional multi-timeframe analysis components
+            mtf_trend_analysis = self._calculate_mtf_trend_analysis(mtf_data)
+            mtf_momentum_scores = self._calculate_mtf_momentum_scores(mtf_data)
+            divergence_analysis = self._calculate_divergence_analysis(technical_analysis, mtf_data)
+            volume_analysis = self._calculate_mtf_volume_analysis(mtf_data)
+            overall_mtf_score = self._calculate_overall_mtf_score(technical_analysis, mtf_trend_analysis, mtf_momentum_scores)
+            mtf_confidence = self._calculate_mtf_confidence(technical_analysis, mtf_trend_analysis)
+            mtf_strength = self._calculate_mtf_strength(overall_mtf_score, mtf_confidence)
+            
+            # Return complete technical analysis with MTF data
             return {
                 "technical_indicators": technical_analysis,
-                "technical_scores": technical_scores
+                "technical_scores": technical_scores,
+                "trend_alignment": mtf_trend_analysis,
+                "momentum_scores": mtf_momentum_scores,
+                "divergence_signals": divergence_analysis,
+                "volume_analysis": volume_analysis,
+                "mtf_score": overall_mtf_score,
+                "mtf_confidence": mtf_confidence,
+                "mtf_strength": mtf_strength
             }
             
         except Exception as e:
@@ -584,6 +611,266 @@ class StocksService:
             logger.error(f"Error processing fundamental analysis for {symbol}: {e}")
             return {}
     
+    def _calculate_mtf_trend_analysis(self, mtf_data: Dict[str, Any]) -> Dict[str, Any]:
+        """Calculate trend analysis across multiple timeframes"""
+        try:
+            trend_analysis = {}
+            
+            for tf_name, data in mtf_data.items():
+                if data is None or data.empty or len(data) < 20:
+                    continue
+                
+                close = data['Close']
+                sma_20 = close.rolling(20).mean()
+                
+                # Determine trend direction
+                if close.iloc[-1] > sma_20.iloc[-1]:
+                    trend = "bullish"
+                elif close.iloc[-1] < sma_20.iloc[-1]:
+                    trend = "bearish"
+                else:
+                    trend = "neutral"
+                
+                # Calculate trend strength
+                trend_strength = abs(close.iloc[-1] - sma_20.iloc[-1]) / sma_20.iloc[-1] * 100
+                
+                trend_analysis[tf_name] = {
+                    "trend": trend,
+                    "strength": trend_strength,
+                    "price": float(close.iloc[-1]),
+                    "sma_20": float(sma_20.iloc[-1])
+                }
+            
+            return trend_analysis
+            
+        except Exception as e:
+            logger.error(f"Error calculating MTF trend analysis: {e}")
+            return {}
+    
+    def _calculate_mtf_momentum_scores(self, mtf_data: Dict[str, Any]) -> Dict[str, Any]:
+        """Calculate momentum scores for each timeframe"""
+        try:
+            momentum_scores = {}
+            
+            for tf_name, data in mtf_data.items():
+                if data is None or data.empty or len(data) < 10:
+                    continue
+                
+                close = data['Close']
+                
+                # Calculate various momentum metrics
+                if len(close) >= 5:
+                    momentum_5 = (close.iloc[-1] - close.iloc[-5]) / close.iloc[-5] * 100
+                else:
+                    momentum_5 = 0
+                
+                if len(close) >= 10:
+                    momentum_10 = (close.iloc[-1] - close.iloc[-10]) / close.iloc[-10] * 100
+                else:
+                    momentum_10 = 0
+                
+                if len(close) >= 20:
+                    momentum_20 = (close.iloc[-1] - close.iloc[-20]) / close.iloc[-20] * 100
+                else:
+                    momentum_20 = 0
+                
+                # Calculate RSI for momentum
+                if len(close) >= 14:
+                    delta = close.diff()
+                    gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
+                    loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
+                    rs = gain / loss
+                    rsi = 100 - (100 / (1 + rs))
+                    rsi_value = float(rsi.iloc[-1]) if not rsi.empty else 50
+                else:
+                    rsi_value = 50
+                
+                momentum_scores[tf_name] = {
+                    "momentum_5": momentum_5,
+                    "momentum_10": momentum_10,
+                    "momentum_20": momentum_20,
+                    "rsi": rsi_value,
+                    "overall_score": (momentum_5 + momentum_10 + momentum_20) / 3
+                }
+            
+            return momentum_scores
+            
+        except Exception as e:
+            logger.error(f"Error calculating MTF momentum scores: {e}")
+            return {}
+    
+    def _calculate_divergence_analysis(self, technical_analysis: Dict[str, Any], mtf_data: Dict[str, Any]) -> Dict[str, Any]:
+        """Calculate divergence analysis across timeframes"""
+        try:
+            divergence_signals = {
+                "bullish_divergence": False,
+                "bearish_divergence": False,
+                "timeframe_divergences": {}
+            }
+            
+            # Check for RSI divergence
+            rsi_values = []
+            price_values = []
+            
+            for tf_name, data in mtf_data.items():
+                if data is None or data.empty or len(data) < 20:
+                    continue
+                
+                close = data['Close']
+                if len(close) >= 14:
+                    delta = close.diff()
+                    gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
+                    loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
+                    rs = gain / loss
+                    rsi = 100 - (100 / (1 + rs))
+                    
+                    if not rsi.empty:
+                        rsi_values.append(float(rsi.iloc[-1]))
+                        price_values.append(float(close.iloc[-1]))
+            
+            # Simple divergence detection
+            if len(rsi_values) >= 2 and len(price_values) >= 2:
+                price_trend = price_values[-1] > price_values[0]
+                rsi_trend = rsi_values[-1] > rsi_values[0]
+                
+                if price_trend and not rsi_trend:
+                    divergence_signals["bearish_divergence"] = True
+                elif not price_trend and rsi_trend:
+                    divergence_signals["bullish_divergence"] = True
+            
+            return divergence_signals
+            
+        except Exception as e:
+            logger.error(f"Error calculating divergence analysis: {e}")
+            return {"bullish_divergence": False, "bearish_divergence": False, "timeframe_divergences": {}}
+    
+    def _calculate_mtf_volume_analysis(self, mtf_data: Dict[str, Any]) -> Dict[str, Any]:
+        """Calculate volume analysis across timeframes"""
+        try:
+            volume_analysis = {}
+            
+            for tf_name, data in mtf_data.items():
+                if data is None or data.empty or len(data) < 10:
+                    continue
+                
+                volume = data['Volume']
+                
+                # Calculate volume metrics
+                avg_volume = volume.mean()
+                current_volume = volume.iloc[-1]
+                volume_ratio = current_volume / avg_volume if avg_volume > 0 else 1
+                
+                # Volume trend
+                if len(volume) >= 5:
+                    volume_trend = (volume.iloc[-1] - volume.iloc[-5]) / volume.iloc[-5] * 100
+                else:
+                    volume_trend = 0
+                
+                volume_analysis[tf_name] = {
+                    "current_volume": float(current_volume),
+                    "avg_volume": float(avg_volume),
+                    "volume_ratio": float(volume_ratio),
+                    "volume_trend": float(volume_trend),
+                    "volume_score": min(1.0, volume_ratio)  # Normalize to 0-1
+                }
+            
+            return volume_analysis
+            
+        except Exception as e:
+            logger.error(f"Error calculating MTF volume analysis: {e}")
+            return {}
+    
+    def _calculate_overall_mtf_score(self, technical_analysis: Dict[str, Any], trend_analysis: Dict[str, Any], momentum_scores: Dict[str, Any]) -> float:
+        """Calculate overall multi-timeframe score"""
+        try:
+            scores = []
+            
+            # Add trend scores
+            for tf_data in trend_analysis.values():
+                if tf_data.get("trend") == "bullish":
+                    scores.append(0.7 + min(0.3, tf_data.get("strength", 0) / 10))
+                elif tf_data.get("trend") == "bearish":
+                    scores.append(0.3 - min(0.3, tf_data.get("strength", 0) / 10))
+                else:
+                    scores.append(0.5)
+            
+            # Add momentum scores
+            for tf_data in momentum_scores.values():
+                overall_score = tf_data.get("overall_score", 0)
+                normalized_score = 0.5 + (overall_score / 100) * 0.5  # Normalize to 0-1
+                scores.append(normalized_score)
+            
+            # Add technical analysis score
+            if technical_analysis:
+                rsi = technical_analysis.get("rsi_14", 50)
+                rsi_score = 1 - abs(rsi - 50) / 50  # RSI closer to 50 = better score
+                scores.append(rsi_score)
+            
+            return sum(scores) / len(scores) if scores else 0.5
+            
+        except Exception as e:
+            logger.error(f"Error calculating overall MTF score: {e}")
+            return 0.5
+    
+    def _calculate_mtf_confidence(self, technical_analysis: Dict[str, Any], trend_analysis: Dict[str, Any]) -> float:
+        """Calculate confidence level for MTF analysis"""
+        try:
+            confidence_factors = []
+            
+            # Data availability factor
+            data_quality = len(trend_analysis) / 5.0  # 5 timeframes expected
+            confidence_factors.append(data_quality)
+            
+            # Technical indicator consistency
+            if technical_analysis:
+                rsi = technical_analysis.get("rsi_14", 50)
+                macd = technical_analysis.get("macd", 0)
+                macd_signal = technical_analysis.get("macd_signal", 0)
+                
+                # RSI confidence (closer to extremes = higher confidence)
+                rsi_confidence = abs(rsi - 50) / 50
+                confidence_factors.append(rsi_confidence)
+                
+                # MACD confidence
+                macd_confidence = abs(macd - macd_signal) / max(abs(macd), abs(macd_signal), 1)
+                confidence_factors.append(min(1.0, macd_confidence))
+            
+            # Trend alignment factor
+            if trend_analysis:
+                bullish_count = sum(1 for tf in trend_analysis.values() if tf.get("trend") == "bullish")
+                bearish_count = sum(1 for tf in trend_analysis.values() if tf.get("trend") == "bearish")
+                total_trends = bullish_count + bearish_count
+                
+                if total_trends > 0:
+                    trend_alignment = max(bullish_count, bearish_count) / total_trends
+                    confidence_factors.append(trend_alignment)
+            
+            return sum(confidence_factors) / len(confidence_factors) if confidence_factors else 0.5
+            
+        except Exception as e:
+            logger.error(f"Error calculating MTF confidence: {e}")
+            return 0.5
+    
+    def _calculate_mtf_strength(self, mtf_score: float, mtf_confidence: float) -> str:
+        """Calculate MTF strength rating"""
+        try:
+            combined_score = (mtf_score + mtf_confidence) / 2
+            
+            if combined_score >= 0.8:
+                return "very_strong"
+            elif combined_score >= 0.6:
+                return "strong"
+            elif combined_score >= 0.4:
+                return "moderate"
+            elif combined_score >= 0.2:
+                return "weak"
+            else:
+                return "very_weak"
+                
+        except Exception as e:
+            logger.error(f"Error calculating MTF strength: {e}")
+            return "unknown"
+    
     def _store_multi_timeframe_analysis(self, symbol: str, ticker_data: Dict[str, Any], technical_analysis: Dict[str, Any]) -> str:
         """Store multi-timeframe analysis in database"""
         try:
@@ -614,13 +901,15 @@ class StocksService:
                 "updated_at": now.isoformat(),
                 "timeframes": timeframes,
                 "technical_indicators": technical_analysis.get("technical_indicators", {}),
-                "trend_alignment": technical_analysis.get("trend_alignment", {}),
+                "trend_analysis": technical_analysis.get("trend_alignment", {}),  # Fixed field name
                 "momentum_scores": technical_analysis.get("momentum_scores", {}),
                 "divergence_signals": technical_analysis.get("divergence_signals", {}),
                 "volume_analysis": technical_analysis.get("volume_analysis", {}),
-                "mtf_score": technical_analysis.get("mtf_score"),
-                "mtf_confidence": technical_analysis.get("mtf_confidence"),
-                "mtf_strength": technical_analysis.get("mtf_strength"),
+                "mtf_scores": {  # Fixed to mtf_scores (plural)
+                    "overall_score": technical_analysis.get("mtf_score"),
+                    "confidence": technical_analysis.get("mtf_confidence"),
+                    "strength": technical_analysis.get("mtf_strength")
+                },
                 "analysis_version": "1.0",
                 "data_quality": "good"
             }
