@@ -38,333 +38,43 @@ class MultiStagePromptingService:
         # AI Provider selection - can be "openai" or "claude"
         self.ai_provider = getattr(settings, 'ai_provider', 'openai')
         
-        # Cache for processed data to avoid redundant processing
-        self._processed_data_cache = {}
-    
-    def _prepare_data_once(self, symbol: str, fundamentals: Dict[str, Any], 
-                          technical: Dict[str, Any], enhanced_fundamentals: Dict[str, Any] = None) -> Dict[str, Any]:
-        """
-        OPTIMIZATION: Prepare all data once and reuse across all stages
-        Eliminates redundant data anonymization and formatting
-        """
-        try:
-            # Check cache first
-            cache_key = f"{symbol}_{hash(str(fundamentals))}_{hash(str(technical))}"
-            if cache_key in self._processed_data_cache:
-                logger.debug(f"🎯 Using cached processed data for {symbol}")
-                return self._processed_data_cache[cache_key]
-            
-            logger.debug(f"📊 Processing data once for {symbol}")
-            
-            # Single data anonymization - COMMENTED OUT FOR TESTING
-            # anonymized_data = self.openai_client._anonymize_data(symbol, fundamentals, technical, enhanced_fundamentals)
-            # Use raw data instead of anonymized data
-            anonymized_data = {
-                "fundamentals": fundamentals,
-                "technical": technical,
-                "enhanced_fundamentals": enhanced_fundamentals or {},
-                "symbol": symbol  # Include symbol for better analysis
-            }
-            
-            # Single data formatting
-            formatted_data = self._format_data_for_analysis(anonymized_data)
-            
-            # Single risk-reward calculation with AI enhancement
-            risk_reward = self._calculate_risk_reward_once(symbol, technical, fundamentals, enhanced_fundamentals)
-            
-            # Prepare comprehensive data package
-            processed_data = {
-                "anonymized_data": anonymized_data,
-                "formatted_data": formatted_data,
-                "risk_reward": risk_reward,
-                "symbol": symbol,
-                "fundamentals": fundamentals,
-                "technical": technical,
-                "enhanced_fundamentals": enhanced_fundamentals
-            }
-            
-            # Cache the processed data
-            self._processed_data_cache[cache_key] = processed_data
-            
-            # Limit cache size to prevent memory issues
-            if len(self._processed_data_cache) > 100:
-                # Remove oldest entries
-                oldest_key = next(iter(self._processed_data_cache))
-                del self._processed_data_cache[oldest_key]
-            
-            logger.debug(f"✅ Data processed and cached for {symbol}")
-            return processed_data
-            
-        except Exception as e:
-            logger.error(f"❌ Failed to prepare data for {symbol}: {e}")
-            return None
-    
-    def _calculate_risk_reward_once(self, symbol: str, technical: Dict[str, Any], 
-                                   fundamentals: Dict[str, Any] = None, enhanced_fundamentals: Dict[str, Any] = None) -> Dict[str, Any]:
-        """
-        HYBRID: Calculate risk-reward once with AI enhancement for better interpretation
-        Combines reliable code calculation with intelligent AI context analysis
-        """
-        try:
-            current_price = technical.get('current_price', technical.get('close', 0))
-            if not current_price:
-                logger.warning(f"No current price available for {symbol}")
-                return {"error": "No current price available"}
-            
-            # Step 1: Core mathematical calculation (reliable)
-            resistance = self._calculate_resistance_level(technical)
-            support = self._calculate_support_level(technical)
-            
-            upside = resistance - current_price
-            downside = current_price - support
-            ratio = upside / downside if downside > 0 else 0
-            
-            # Step 2: AI enhancement for context and interpretation
-            ai_enhancement = self._get_ai_risk_reward_enhancement(
-                symbol, current_price, resistance, support, upside, downside, ratio, 
-                technical, fundamentals, enhanced_fundamentals
-            )
-            
-            # Step 3: Combine reliable calculation with AI enhancement
-            risk_reward_data = {
-                "current_price": current_price,
-                "resistance_level": resistance,
-                "support_level": support,
-                "upside": upside,
-                "downside": downside,
-                "upside_percentage": (upside / current_price * 100) if current_price > 0 else 0,
-                "downside_percentage": (downside / current_price * 100) if current_price > 0 else 0,
-                "risk_reward_ratio": ratio,
-                "ratio_interpretation": ai_enhancement.get("enhanced_interpretation", self._interpret_risk_reward_ratio(ratio)),
-                "calculation_steps": f"Upside: {resistance} - {current_price} = {upside:.2f}, Downside: {current_price} - {support} = {downside:.2f}, Ratio: {upside:.2f} / {downside:.2f} = {ratio:.2f}:1",
-                "ai_enhancement": ai_enhancement
-            }
-            
-            logger.debug(f"🎯 Risk-reward calculated for {symbol}: {ratio:.2f}:1 (AI enhanced)")
-            return risk_reward_data
-            
-        except Exception as e:
-            logger.error(f"❌ Failed to calculate risk-reward for {symbol}: {e}")
-            return {"error": str(e)}
-    
-    def _get_ai_risk_reward_enhancement(self, symbol: str, current_price: float, 
-                                      resistance: float, support: float, upside: float, 
-                                      downside: float, ratio: float, technical: Dict[str, Any],
-                                      fundamentals: Dict[str, Any] = None, enhanced_fundamentals: Dict[str, Any] = None) -> Dict[str, Any]:
-        """
-        AI enhancement for risk-reward calculation with market context
-        """
-        try:
-            # Prepare market context data
-            market_context = {
-                "technical_indicators": {
-                    "rsi": technical.get('rsi_14', technical.get('rsi14')),
-                    "macd": technical.get('macd', technical.get('macd_signal')),
-                    "volume": technical.get('volume', technical.get('avg_volume')),
-                    "volatility": technical.get('volatility', technical.get('atr'))
-                },
-                "fundamental_context": {
-                    "pe_ratio": fundamentals.get('pe_ratio', fundamentals.get('trailing_pe')) if fundamentals else None,
-                    "market_cap": fundamentals.get('market_cap', fundamentals.get('market_capitalization')) if fundamentals else None,
-                    "sector": fundamentals.get('sector', fundamentals.get('industry')) if fundamentals else None
-                },
-                "price_levels": {
-                    "high_52w": technical.get('high_52w', technical.get('fifty_two_week_high')),
-                    "low_52w": technical.get('low_52w', technical.get('fifty_two_week_low')),
-                    "recent_high": technical.get('recent_high', technical.get('high')),
-                    "recent_low": technical.get('recent_low', technical.get('low'))
-                }
-            }
-            
-            prompt = f"""
-            RISK-REWARD ENHANCEMENT ANALYSIS - Enhance mathematical calculation with market intelligence
-            
-            === CALCULATED VALUES ===
-            - Current Price: ₹{current_price}
-            - Resistance Level: ₹{resistance}
-            - Support Level: ₹{support}
-            - Upside: ₹{upside} ({upside/current_price*100:.1f}%)
-            - Downside: ₹{downside} ({downside/current_price*100:.1f}%)
-            - Risk-Reward Ratio: {ratio:.2f}:1
-            
-            === MARKET CONTEXT ===
-            {json.dumps(market_context, indent=2)}
-            
-            === ENHANCEMENT TASK ===
-            
-            Enhance this risk-reward calculation with intelligent market analysis:
-            
-            1. CONTEXT-AWARE INTERPRETATION:
-               - Is this ratio appropriate for current market conditions?
-               - How does it compare to similar setups in this sector?
-               - What market factors affect this calculation?
-            
-            2. DYNAMIC ADJUSTMENTS:
-               - Should resistance/support levels be adjusted based on technical context?
-               - Are there any special market conditions affecting this calculation?
-               - What external factors could impact these levels?
-            
-            3. ENHANCED INTERPRETATION:
-               - Provide nuanced interpretation beyond basic ratio
-               - Consider market volatility, sector trends, and economic conditions
-               - Suggest position sizing based on risk-reward quality
-            
-            4. QUALITY ASSESSMENT:
-               - Rate the quality of this risk-reward setup (0-1)
-               - Identify strengths and weaknesses
-               - Suggest improvements if needed
-            
-            Return as JSON:
-            {{
-                "context_interpretation": "text",
-                "market_adjustments": {{"resistance_adjustment": 0.0, "support_adjustment": 0.0, "reasoning": "text"}},
-                "enhanced_interpretation": "text",
-                "quality_score": 0.0,
-                "strengths": ["list"],
-                "weaknesses": ["list"],
-                "improvements": ["list"],
-                "position_sizing_guidance": "text",
-                "market_factors": ["list"],
-                "confidence_level": "high/medium/low"
-            }}
-            """
-            
-            response = self._call_ai_provider(prompt, "You are a risk management specialist who enhances mathematical calculations with market context and intelligent interpretation.")
-            if not response:
-                # Fallback to basic interpretation if AI fails
-                return {
-                    "enhanced_interpretation": self._interpret_risk_reward_ratio(ratio),
-                    "quality_score": 0.5,
-                    "confidence_level": "medium"
-                }
-            
-            return self._parse_json_response(response, "Risk-Reward Enhancement")
-            
-        except Exception as e:
-            logger.error(f"❌ AI enhancement failed for {symbol}: {e}")
-            # Fallback to basic interpretation
-            return {
-                "enhanced_interpretation": self._interpret_risk_reward_ratio(ratio),
-                "quality_score": 0.5,
-                "confidence_level": "medium"
-            }
-    
-    def _calculate_resistance_level(self, technical: Dict[str, Any]) -> float:
-        """Calculate resistance level from technical data"""
-        # Try 52-week high first
-        high_52w = technical.get('high_52w', technical.get('fifty_two_week_high'))
-        if high_52w:
-            return float(high_52w)
-        
-        # Fallback to recent high
-        recent_high = technical.get('recent_high', technical.get('high'))
-        if recent_high:
-            return float(recent_high)
-        
-        # Fallback to current price * 1.05 (5% upside assumption)
-        current_price = technical.get('current_price', technical.get('close', 100))
-        return float(current_price) * 1.05
-    
-    def _calculate_support_level(self, technical: Dict[str, Any]) -> float:
-        """Calculate support level from technical data"""
-        # Try VWAP first
-        vwap = technical.get('vwap', technical.get('vwap_20'))
-        if vwap:
-            return float(vwap)
-        
-        # Try 20-day SMA
-        sma_20 = technical.get('sma_20', technical.get('sma20'))
-        if sma_20:
-            return float(sma_20)
-        
-        # Try recent low
-        recent_low = technical.get('recent_low', technical.get('low'))
-        if recent_low:
-            return float(recent_low)
-        
-        # Fallback to current price * 0.95 (5% downside assumption)
-        current_price = technical.get('current_price', technical.get('close', 100))
-        return float(current_price) * 0.95
-    
-    def _interpret_risk_reward_ratio(self, ratio: float) -> str:
-        """Interpret risk-reward ratio"""
-        if ratio >= 2.0:
-            return "Excellent (risk ₹1 to make ₹2+)"
-        elif ratio >= 1.5:
-            return "Good"
-        elif ratio >= 1.0:
-            return "Acceptable with tight stops"
-        else:
-            return "Poor setup, avoid or wait for better entry"
-        
     def analyze_stock(self, symbol: str, fundamentals: Dict[str, Any], 
                      technical: Dict[str, Any], enhanced_fundamentals: Dict[str, Any] = None) -> Dict[str, Any]:
         """
-        OPTIMIZED: Main entry point for multi-stage analysis with single data processing
+        Main entry point for multi-stage analysis
         Returns comprehensive analysis with all stages
         """
         try:
             logger.info(f"🔍 Multi-stage analysis for {symbol} using {self.ai_provider.upper()}")
             
-            # OPTIMIZATION: Prepare all data once and reuse across stages
-            processed_data = self._prepare_data_once(symbol, fundamentals, technical, enhanced_fundamentals)
-            if not processed_data:
-                return {"error": "Failed to prepare data for analysis"}
-            
-            logger.info(f"✅ Data processed once for {symbol} - reusing across all stages")
-            
-            # Stage 1: Simple Analysis (using pre-processed data)
-            simple_analysis = self._stage1_simple_analysis(symbol, processed_data["fundamentals"], processed_data["technical"], processed_data["enhanced_fundamentals"], processed_data)
-            if not simple_analysis:
+            # Stage 1: Forensic Analysis
+            forensic_analysis = self._stage1_forensic_analysis(symbol, fundamentals, technical, enhanced_fundamentals)
+            if not forensic_analysis:
                 return {"error": "Stage 1 analysis failed"}
             
-            # Stage 2: Simple Decision (using simple analysis output as input)
-            simple_decision = self._stage2_simple_decision(symbol, simple_analysis, processed_data["fundamentals"], processed_data["technical"], processed_data["enhanced_fundamentals"], processed_data)
-            if not simple_decision:
+            # Stage 2: Module Selection and Specialized Analysis
+            module_analysis = self._stage2_module_selection(symbol, forensic_analysis, fundamentals, technical, enhanced_fundamentals)
+            if not module_analysis:
                 return {"error": "Stage 2 analysis failed"}
             
-            # Create compatibility layer for existing pipeline
-            forensic_analysis = {
-                "the_setup": simple_analysis.get("the_setup", ""),
-                "the_catalyst": simple_analysis.get("the_catalyst", ""),
-                "the_confirmation": simple_analysis.get("the_confirmation", ""),
-                "overall_signal": simple_analysis.get("overall_signal", "neutral"),
-                "confidence": simple_analysis.get("confidence", 0.0),
-                "fundamental_score": simple_analysis.get("fundamental_score", 0.0),
-                "technical_score": simple_analysis.get("technical_score", 0.0),
-                "overall_signal_strength": simple_analysis.get("overall_signal_strength", 0.0),
-                "primary_driver": simple_analysis.get("primary_driver", "momentum")
-            }
+            # Stage 3: Risk Assessment
+            risk_assessment = self._stage3_risk_assessment(symbol, forensic_analysis, module_analysis, fundamentals, technical)
+            if not risk_assessment:
+                return {"error": "Stage 3 analysis failed"}
             
-            module_analysis = {
-                "selected_module": "simple",
-                "module_analysis": simple_analysis,
-                "selection_reasoning": "Simplified 3-factor analysis"
-            }
-            
-            risk_assessment = {
-                "risk_level": simple_decision.get("risk_level", "moderate"),
-                "deal_breakers": simple_decision.get("deal_breakers", []),
-                "manageable_risks": simple_decision.get("manageable_risks", [])
-            }
-            
-            final_decision = {
-                "action": simple_decision.get("decision", "WATCH"),
-                "confidence": simple_decision.get("confidence", 0.0),
-                "rationale": simple_decision.get("reasoning", []),
-                "position_size": simple_decision.get("position_size", "50%"),
-                "stop_loss": simple_decision.get("stop_loss", 0.0),
-                "target_price": simple_decision.get("target_price", 0.0)
-            }
+            # Stage 4: Final Decision
+            final_decision = self._stage4_final_decision(symbol, forensic_analysis, module_analysis, risk_assessment, fundamentals, technical)
+            if not final_decision:
+                return {"error": "Stage 4 analysis failed"}
             
             # Compile comprehensive result
             result = {
                 "symbol": symbol,
                 "analysis_stages": {
-                    "forensic_analysis": forensic_analysis,
-                    "module_selection": module_analysis,
-                    "risk_assessment": risk_assessment,
-                    "final_decision": final_decision
+                    "stage1_forensic": forensic_analysis,
+                    "stage2_module": module_analysis,
+                    "stage3_risk": risk_assessment,
+                    "stage4_decision": final_decision
                 },
                 "final_recommendation": {
                     "action": final_decision["action"],
@@ -373,15 +83,13 @@ class MultiStagePromptingService:
                     "position_size": final_decision.get("position_size", "50%"),
                     "stop_loss": final_decision.get("stop_loss"),
                     "target_price": final_decision.get("target_price"),
-                    "holding_period": "medium-term"
+                    "holding_period": final_decision.get("holding_period", "medium-term")
                 },
                 "risk_summary": {
                     "risk_level": risk_assessment["risk_level"],
                     "deal_breakers": risk_assessment.get("deal_breakers", []),
                     "manageable_risks": risk_assessment.get("manageable_risks", [])
-                },
-                "simple_analysis": simple_analysis,
-                "simple_decision": simple_decision
+                }
             }
             
             logger.info(f"✅ Multi-stage analysis completed for {symbol}: {final_decision['action']} (confidence: {final_decision['confidence']})")
@@ -391,237 +99,198 @@ class MultiStagePromptingService:
             logger.error(f"❌ Multi-stage analysis failed for {symbol}: {e}")
             return {"error": str(e)}
     
-    def _stage1_simple_analysis(self, symbol: str, fundamentals: Dict[str, Any], 
-                               technical: Dict[str, Any], enhanced_fundamentals: Dict[str, Any] = None, processed_data: Dict[str, Any] = None) -> Optional[Dict[str, Any]]:
+    def _stage1_forensic_analysis(self, symbol: str, fundamentals: Dict[str, Any], 
+                                 technical: Dict[str, Any], enhanced_fundamentals: Dict[str, Any] = None) -> Optional[Dict[str, Any]]:
         """
-        ENHANCED: Stage 1: Simple 3-Factor Analysis using pre-processed data
-        Identifies the 3 most important factors: Setup, Catalyst, Confirmation
+        Stage 1: Forensic Analysis Prompt
+        Identifies top bullish/bearish factors, support/resistance, momentum direction, etc.
         """
         try:
-            # OPTIMIZATION: Use pre-processed data if available
-            if processed_data:
-                logger.debug(f"🎯 Using pre-processed data for Stage 1 {symbol}")
-                anonymized_data = processed_data["anonymized_data"]
-                formatted_data = processed_data["formatted_data"]
-                risk_reward = processed_data["risk_reward"]
-            else:
-                # Fallback to original processing
-                logger.debug(f"📊 Processing data for Stage 1 {symbol}")
-                # anonymized_data = self.openai_client._anonymize_data(symbol, fundamentals, technical, enhanced_fundamentals)
-                # Use raw data instead of anonymized data
-                anonymized_data = {
-                    "fundamentals": fundamentals,
-                    "technical": technical,
-                    "enhanced_fundamentals": enhanced_fundamentals or {},
-                    "symbol": symbol
-                }
-                formatted_data = self._format_data_for_analysis(anonymized_data)
-                risk_reward = self._calculate_risk_reward_once(symbol, technical, fundamentals, enhanced_fundamentals)
+            # Anonymize data
+            anonymized_data = self.openai_client._anonymize_data(symbol, fundamentals, technical, enhanced_fundamentals)
             
             prompt = f"""
-You are a stock analyst who identifies the most important factors in simple terms.
+You are a forensic financial analyst. Analyze this comprehensive stock data and identify the most critical factors.
 
 === STOCK DATA ===
-{formatted_data}
+{self._format_data_for_analysis(anonymized_data)}
 
-=== SIMPLE ANALYSIS TASK ===
+=== FORENSIC ANALYSIS TASK ===
 
-Give me the 3 most important things about this stock:
+Analyze ALL the data and identify:
 
-1. THE SETUP (What's happening?)
-   Describe the current technical and fundamental situation in 2-3 sentences, including:
-   - Key price levels being tested
-   - Current momentum direction  
-   - Why these levels matter for the trade
+1. TOP 3 BULLISH FACTORS (with specific numbers):
+   - Factor 1: [Specific metric and value]
+   - Factor 2: [Specific metric and value] 
+   - Factor 3: [Specific metric and value]
 
-2. THE CATALYST (Why now?)
-   Identify recent developments that make this timing relevant:
-   - Recent news or events
-   - Earnings, guidance, or market developments
-   - Why this matters for the stock's direction
+2. TOP 3 BEARISH FACTORS (with specific numbers):
+   - Factor 1: [Specific metric and value]
+   - Factor 2: [Specific metric and value]
+   - Factor 3: [Specific metric and value]
 
-3. THE CONFIRMATION (Is it real?)
-   Assess the strength of the setup:
-   - Volume, momentum, or other confirmation signals
-   - Why this confirms (or contradicts) the setup
-   - What would break this setup
+3. KEY SUPPORT/RESISTANCE LEVELS:
+   - Support Level 1: [Price and reasoning]
+   - Support Level 2: [Price and reasoning]
+   - Resistance Level 1: [Price and reasoning]
+   - Resistance Level 2: [Price and reasoning]
 
-=== RISK-REWARD CALCULATION (PRE-CALCULATED) ===
-- Current Price: {risk_reward.get('current_price', 'N/A')}
-- Resistance Level: {risk_reward.get('resistance_level', 'N/A')}
-- Support Level: {risk_reward.get('support_level', 'N/A')}
-- Upside: {risk_reward.get('upside', 'N/A')} ({risk_reward.get('upside_percentage', 'N/A')}%)
-- Downside: {risk_reward.get('downside', 'N/A')} ({risk_reward.get('downside_percentage', 'N/A')}%)
-- Risk-Reward Ratio: {risk_reward.get('risk_reward_ratio', 'N/A')}:1
-- AI-Enhanced Interpretation: {risk_reward.get('ratio_interpretation', 'N/A')}
+4. TIMEFRAME ALIGNMENT STRENGTH (0-1):
+   - Score: [0.0-1.0]
+   - Reasoning: [Which timeframes align and how strong]
 
-=== ADDITIONAL CONTEXT ===
-- Consider this stock's sector and industry position in your analysis
-- Reference the risk-reward ratio in your assessment
-- Explain your confidence level and what factors support it
+5. MOMENTUM DIRECTION:
+   - Direction: [accelerating/steady/decelerating]
+   - Strength: [weak/moderate/strong]
+   - Confirmation: [volume/technical/fundamental]
+
+6. VOLUME CONFIRMATION QUALITY (0-1):
+   - Score: [0.0-1.0]
+   - Analysis: [Volume patterns and institutional interest]
+
+7. FUNDAMENTAL vs TECHNICAL SCORE:
+   - Fundamental Score: [0.0-1.0]
+   - Technical Score: [0.0-1.0]
+   - Dominant Factor: [fundamental/technical/balanced]
+
+8. RISK-REWARD CALCULATION:
+   - Current Price: [price]
+   - Resistance Level: [price and source]
+   - Support Level: [price and source]
+   - Upside: [amount and percentage]
+   - Downside: [amount and percentage]
+   - Risk-Reward Ratio: [X:1 format]
+   - Interpretation: [excellent/good/acceptable/poor]
+
+9. OVERALL SIGNAL STRENGTH (0-1):
+   - Score: [0.0-1.0]
+   - Primary Driver: [momentum/value/breakout/quality]
+
+CRITICAL: For risk-reward calculation, use this formula:
+- Upside = (Resistance - Current Price)
+- Downside = (Current Price - Support)
+- Ratio = Upside / Downside
+- Express as X:1 (e.g., "2.5:1" means risk ₹1 to make ₹2.5)
+- NEVER express as inverse (22:1 is WRONG if you mean 1:22)
 
 Return as JSON:
 {{
-    "the_setup": "text describing current situation and key levels",
-    "the_catalyst": "text describing recent news or events",
-    "the_confirmation": "text describing volume/momentum confirmation",
-    "overall_signal": "strong/weak/neutral",
-    "confidence": 0.0,
-    "confidence_reasoning": "explanation of confidence factors",
-    "key_levels": {{
-        "support": {risk_reward.get('support_level', 0.0)},
-        "resistance": {risk_reward.get('resistance_level', 0.0)},
-        "current_price": {risk_reward.get('current_price', 0.0)}
-    }},
-    "risk_reward": {{
-        "ratio": {risk_reward.get('risk_reward_ratio', 0.0)},
-        "interpretation": "{risk_reward.get('ratio_interpretation', 'N/A')}",
-        "upside": {risk_reward.get('upside', 0.0)},
-        "downside": {risk_reward.get('downside', 0.0)}
-    }},
+    "bullish_factors": ["factor1", "factor2", "factor3"],
+    "bearish_factors": ["factor1", "factor2", "factor3"],
+    "support_levels": [{{"price": 0, "reasoning": "text"}}],
+    "resistance_levels": [{{"price": 0, "reasoning": "text"}}],
+    "timeframe_alignment": {{"score": 0.0, "reasoning": "text"}},
+    "momentum_direction": {{"direction": "accelerating", "strength": "strong", "confirmation": "volume"}},
+    "volume_confirmation": {{"score": 0.0, "analysis": "text"}},
     "fundamental_score": 0.0,
     "technical_score": 0.0,
     "dominant_factor": "technical",
+    "risk_reward_calculation": {{
+        "current_price": 0.0,
+        "resistance_level": {{"price": 0.0, "source": "text"}},
+        "support_level": {{"price": 0.0, "source": "text"}},
+        "upside": {{"amount": 0.0, "percentage": 0.0}},
+        "downside": {{"amount": 0.0, "percentage": 0.0}},
+        "risk_reward_ratio": 0.0,
+        "interpretation": "text"
+    }},
     "overall_signal_strength": 0.0,
     "primary_driver": "momentum"
 }}
 """
             
-            response = self._call_ai_provider(prompt, "You are a stock analyst who identifies the most important factors in simple terms.")
+            response = self._call_ai_provider(prompt, "You are a forensic financial analyst specializing in detailed stock analysis.")
             if not response:
                 return None
                 
-            return self._parse_json_response(response, "Stage 1 Simple Analysis")
+            return self._parse_json_response(response, "Stage 1 Forensic Analysis")
             
         except Exception as e:
             logger.error(f"Stage 1 analysis failed for {symbol}: {e}")
             return None
     
-    def _stage2_simple_decision(self, symbol: str, simple_analysis: Dict[str, Any], 
-                               fundamentals: Dict[str, Any], technical: Dict[str, Any], 
-                               enhanced_fundamentals: Dict[str, Any] = None, processed_data: Dict[str, Any] = None) -> Optional[Dict[str, Any]]:
+    def _stage2_module_selection(self, symbol: str, forensic_analysis: Dict[str, Any], 
+                                fundamentals: Dict[str, Any], technical: Dict[str, Any], 
+                                enhanced_fundamentals: Dict[str, Any] = None) -> Optional[Dict[str, Any]]:
         """
-        ENHANCED: Stage 2: Simple Decision using simple analysis output as input
-        Replaces Stages 2, 3, 4 with single focused decision
+        Stage 2: Specialized Module Selection
+        Routes to Momentum, Value Entry, or Balanced module based on scores
         """
         try:
-            # Use simple analysis result as input
-            the_setup = simple_analysis.get("the_setup", "")
-            the_catalyst = simple_analysis.get("the_catalyst", "")
-            the_confirmation = simple_analysis.get("the_confirmation", "")
-            overall_signal = simple_analysis.get("overall_signal", "neutral")
-            confidence = simple_analysis.get("confidence", 0.0)
+            technical_score = forensic_analysis.get("technical_score", 0.0)
+            fundamental_score = forensic_analysis.get("fundamental_score", 0.0)
             
-            prompt = f"""
-            DECISION ANALYSIS - Should we buy this stock?
+            # Determine which module to use
+            if technical_score > 0.7:
+                module = AnalysisModule.MOMENTUM
+                analysis = self._momentum_module_analysis(symbol, forensic_analysis, fundamentals, technical, enhanced_fundamentals)
+            elif fundamental_score > 0.7 and technical_score < 0.6:
+                module = AnalysisModule.VALUE_ENTRY
+                analysis = self._value_entry_module_analysis(symbol, forensic_analysis, fundamentals, technical, enhanced_fundamentals)
+            else:
+                module = AnalysisModule.BALANCED
+                analysis = self._balanced_module_analysis(symbol, forensic_analysis, fundamentals, technical, enhanced_fundamentals)
             
-            === SIMPLE ANALYSIS RESULT ===
-            The Setup: {the_setup}
-            The Catalyst: {the_catalyst}
-            The Confirmation: {the_confirmation}
-            Overall Signal: {overall_signal}
-            Confidence: {confidence}
-            
-            === DECISION TASK ===
-            
-            Based on the setup, catalyst, confirmation, AND the risk-reward ratio, make a clear decision:
-            
-            DECISION: [BUY/WATCH/AVOID]
-            CONFIDENCE: [0.0-1.0]
-            
-            REASONING (3 bullets max):
-            - [Why this decision makes sense based on setup, catalyst, and confirmation]
-            - [What could go wrong and how to manage it]
-            - [What success looks like and key milestones]
-            
-            EXPECTED OUTCOME:
-            - [What we expect to happen based on the analysis]
-            - [Timeline for this to play out]
-            - [How much we could make/lose with risk-reward context]
-            
-            CONFIDENCE REASONING:
-            - [Explain your confidence level and what factors support it]
-            - [Consider sector context and industry position]
-            
-            Return as JSON:
-            {{
-                "decision": "BUY/WATCH/AVOID",
-                "confidence": 0.0,
-                "confidence_reasoning": "explanation of confidence factors and sector context",
-                "reasoning": ["bullet1", "bullet2", "bullet3"],
-                "expected_outcome": "text",
-                "timeline": "text",
-                "potential_gain": "text",
-                "potential_loss": "text",
-                "position_size": "text",
-                "stop_loss": 0.0,
-                "target_price": 0.0,
-                "risk_level": "low/moderate/high",
-                "deal_breakers": ["list"],
-                "manageable_risks": ["list"]
-            }}
-            """
-            
-            response = self._call_ai_provider(prompt, "You are a decision maker who makes clear buy/watch/avoid decisions.")
-            if not response:
+            if not analysis:
                 return None
                 
-            return self._parse_json_response(response, "Stage 2 Simple Decision")
+            return {
+                "selected_module": module.value,
+                "module_analysis": analysis,
+                "selection_reasoning": f"Technical: {technical_score:.2f}, Fundamental: {fundamental_score:.2f}"
+            }
             
         except Exception as e:
-            logger.error(f"Stage 2 simple decision failed for {symbol}: {e}")
+            logger.error(f"Stage 2 module selection failed for {symbol}: {e}")
             return None
     
     def _momentum_module_analysis(self, symbol: str, forensic_analysis: Dict[str, Any], 
                                  fundamentals: Dict[str, Any], technical: Dict[str, Any], 
-                                 enhanced_fundamentals: Dict[str, Any] = None, processed_data: Dict[str, Any] = None) -> Optional[Dict[str, Any]]:
-        """OPTIMIZED: Momentum Module using pre-processed data"""
-        # OPTIMIZATION: Use pre-processed data if available
-        if processed_data:
-            logger.debug(f"🎯 Using pre-processed data for Momentum Module {symbol}")
-            anonymized_data = processed_data["anonymized_data"]
-            formatted_data = processed_data["formatted_data"]
-            risk_reward = processed_data["risk_reward"]
-        else:
-            # Fallback to original processing
-            logger.debug(f"📊 Processing data for Momentum Module {symbol}")
-            # anonymized_data = self.openai_client._anonymize_data(symbol, fundamentals, technical, enhanced_fundamentals)
-            # Use raw data instead of anonymized data
-            anonymized_data = {
-                "fundamentals": fundamentals,
-                "technical": technical,
-                "enhanced_fundamentals": enhanced_fundamentals or {},
-                "symbol": symbol
-            }
-            formatted_data = self._format_data_for_analysis(anonymized_data)
-            risk_reward = self._calculate_risk_reward_once(symbol, technical)
+                                 enhanced_fundamentals: Dict[str, Any] = None) -> Optional[Dict[str, Any]]:
+        """Momentum Module: Focus on strong momentum vs bull trap"""
+        anonymized_data = self.openai_client._anonymize_data(symbol, fundamentals, technical, enhanced_fundamentals)
         
         prompt = f"""
 MOMENTUM MODULE ANALYSIS - Is this strong momentum or a bull trap?
 
 === DATA ===
-{formatted_data}
+{self._format_data_for_analysis(anonymized_data)}
 
 === FORENSIC ANALYSIS CONTEXT ===
 {json.dumps(forensic_analysis, indent=2)}
 
 === MOMENTUM MODULE FOCUS ===
 
-OPTIMIZED: RISK-REWARD CALCULATION (PRE-CALCULATED)
+CRITICAL: RISK-REWARD CALCULATION INSTRUCTIONS
 ```
 Given:
-- Current Price: ₹{risk_reward.get('current_price', 'N/A')}
-- Resistance Level: ₹{risk_reward.get('resistance_level', 'N/A')}
-- Support Level: ₹{risk_reward.get('support_level', 'N/A')}
+- Current Price: ₹{anonymized_data.get('technical', {}).get('current_price', anonymized_data.get('technical', {}).get('close_price', 'N/A'))}
+- Resistance Level: [Calculate from 52-week high or technical resistance]
+- Support Level: [Calculate from VWAP, 20-day SMA, or recent low]
 
-Pre-calculated Results:
-- Upside: ₹{risk_reward.get('upside', 'N/A')} ({risk_reward.get('upside_percentage', 'N/A')}%)
-- Downside: ₹{risk_reward.get('downside', 'N/A')} ({risk_reward.get('downside_percentage', 'N/A')}%)
-- Risk-Reward Ratio: {risk_reward.get('risk_reward_ratio', 'N/A')}:1
-- Interpretation: {risk_reward.get('ratio_interpretation', 'N/A')}
-- Calculation Steps: {risk_reward.get('calculation_steps', 'N/A')}
+Calculate:
+1. Upside = (Resistance - Current Price)
+2. Downside = (Current Price - Support)
+3. Risk-Reward Ratio = Upside / Downside
 
-OPTIMIZATION: Risk-reward calculation is pre-computed and provided above.
+Example:
+- Current: ₹871
+- Resistance: ₹880 (52w high)
+- Support: ₹843 (20-day SMA)
+- Upside: ₹880 - ₹871 = ₹9 (1.0%)
+- Downside: ₹871 - ₹843 = ₹28 (3.2%)
+- Ratio: 9/28 = 0.32:1 (means risk ₹28 to make ₹9)
+
+INTERPRETATION:
+- Ratio > 2.0:1 = Excellent (risk ₹1 to make ₹2+)
+- Ratio 1.5-2.0:1 = Good
+- Ratio 1.0-1.5:1 = Acceptable with tight stops
+- Ratio < 1.0:1 = Poor setup, avoid or wait for better entry
+
+YOU MUST:
+- Show your calculation step by step
+- Express ratio as X:1 (e.g., "2.5:1" means risk ₹1 to make ₹2.5)
+- NEVER express as inverse (22:1 is WRONG if you mean 1:22)
 ```
 
 Analyze specifically for momentum quality:
@@ -691,14 +360,7 @@ Return as JSON:
                                    fundamentals: Dict[str, Any], technical: Dict[str, Any], 
                                    enhanced_fundamentals: Dict[str, Any] = None) -> Optional[Dict[str, Any]]:
         """Value Entry Module: Focus on why buy NOW vs waiting"""
-        # anonymized_data = self.openai_client._anonymize_data(symbol, fundamentals, technical, enhanced_fundamentals)
-        # Use raw data instead of anonymized data
-        anonymized_data = {
-            "fundamentals": fundamentals,
-            "technical": technical,
-            "enhanced_fundamentals": enhanced_fundamentals or {},
-            "symbol": symbol
-        }
+        anonymized_data = self.openai_client._anonymize_data(symbol, fundamentals, technical, enhanced_fundamentals)
         
         prompt = f"""
 VALUE ENTRY MODULE ANALYSIS - Why buy NOW vs waiting?
@@ -812,14 +474,7 @@ Return as JSON:
                                  fundamentals: Dict[str, Any], technical: Dict[str, Any], 
                                  enhanced_fundamentals: Dict[str, Any] = None) -> Optional[Dict[str, Any]]:
         """Balanced Module: Focus on which factors dominate in mixed signals"""
-        # anonymized_data = self.openai_client._anonymize_data(symbol, fundamentals, technical, enhanced_fundamentals)
-        # Use raw data instead of anonymized data
-        anonymized_data = {
-            "fundamentals": fundamentals,
-            "technical": technical,
-            "enhanced_fundamentals": enhanced_fundamentals or {},
-            "symbol": symbol
-        }
+        anonymized_data = self.openai_client._anonymize_data(symbol, fundamentals, technical, enhanced_fundamentals)
         
         prompt = f"""
 BALANCED MODULE ANALYSIS - Which factors dominate in mixed signals?

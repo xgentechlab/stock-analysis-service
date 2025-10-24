@@ -444,6 +444,21 @@ class FirestoreClient:
             logger.error(f"Failed to get job analysis data for {job_id}: {e}")
             return None
 
+    def update_job_analysis_data(self, job_id: str, updates: Dict[str, Any]) -> bool:
+        """Update job analysis data"""
+        try:
+            self._check_connection()
+            logger.info(f"🔍 FIRESTORE UPDATE: Updating analysis data for job {job_id}")
+            
+            doc_ref = self.db.collection("jobs").document(job_id)
+            doc_ref.update(updates)
+            
+            logger.info(f"✅ FIRESTORE UPDATE: Successfully updated job {job_id}")
+            return True
+        except Exception as e:
+            logger.error(f"Failed to update job analysis data for {job_id}: {e}")
+            return False
+
     def get_latest_analysis_by_symbol(self, symbol: str, analysis_type: str = "enhanced") -> Optional[Dict[str, Any]]:
         """Get most recent completed analysis for a symbol with complete data"""
         try:

@@ -133,8 +133,15 @@ class ClaudeClient:
                 logger.error("Claude client not initialized")
                 return None
             
-            # Anonymize data before sending to Claude
-            anonymized_data = self._anonymize_data(symbol, fundamentals, technical, enhanced_fundamentals)
+            # Anonymize data before sending to Claude - COMMENTED OUT FOR TESTING
+            # anonymized_data = self._anonymize_data(symbol, fundamentals, technical, enhanced_fundamentals)
+            # Use raw data instead of anonymized data
+            anonymized_data = {
+                "fundamentals": fundamentals,
+                "technical": technical,
+                "enhanced_fundamentals": enhanced_fundamentals or {},
+                "symbol": symbol
+            }
             
             # Check cache first for cost optimization
             cache_key = self._generate_cache_key(symbol, fundamentals, technical, enhanced_fundamentals)

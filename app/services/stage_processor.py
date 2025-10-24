@@ -75,15 +75,34 @@ class StageProcessor:
                 stage_results["technical_and_combined_scoring"] = db_data["technical_and_combined_scoring"]
                 stage_results["database_data"] = db_data
                 
-                # Get stage execution order and filter out stages 1-2
-                stage_order = self.stage_config.get_stage_order(analysis_type)
-                stage_order = [stage for stage in stage_order if stage not in ["data_collection_and_analysis", "technical_and_combined_scoring"]]
+                # Get full stage execution order (don't filter - we need all 6 stages for progress calculation)
+                full_stage_order = self.stage_config.get_stage_order(analysis_type)
+                
+                # Create execution order that skips stages 1-2 but keeps them for progress calculation
+                stage_order = [stage for stage in full_stage_order if stage not in ["data_collection_and_analysis", "technical_and_combined_scoring"]]
                 
                 # Mark stages 1-2 as completed
                 completed_stages = ["data_collection_and_analysis", "technical_and_combined_scoring"]
                 failed_stages = []
                 
-                logger.info(f"Database data found for {symbol}. Stages 1-2 marked as completed. Processing stages: {stage_order}")
+                # FIX: Mark stages 1-2 as completed in the database
+                logger.info(f"Marking stages 1-2 as completed in database for {symbol}")
+                self.job_service.update_stage_status(
+                    job_id, "data_collection_and_analysis", StageStatus.COMPLETED, 
+                    db_data["data_collection_and_analysis"]
+                )
+                self.job_service.update_stage_status(
+                    job_id, "technical_and_combined_scoring", StageStatus.COMPLETED, 
+                    db_data["technical_and_combined_scoring"]
+                )
+                
+                # FIX: Store database_data in job analysis
+                self._store_database_data_in_job(job_id, db_data)
+                
+                logger.info(f"Database data found for {symbol}. Stages 1-2 marked as completed.")
+                logger.info(f"📋 Full stage order (6 stages): {full_stage_order}")
+                logger.info(f"📋 Execution order (4 stages): {stage_order}")
+                logger.info(f"📊 Progress calculation will use full 6-stage order")
             else:
                 # Fallback to normal processing
                 logger.info(f"No sufficient database data for {symbol}, using normal processing")
@@ -92,21 +111,42 @@ class StageProcessor:
                 failed_stages = []
             
             # Process stages with parallel execution support
-            while len(completed_stages) + len(failed_stages) < len(stage_order):
+            logger.info(f"🔄 Starting stage processing loop for {symbol}")
+            logger.info(f"📋 Total stages to process: {len(stage_order)}")
+            logger.info(f"📋 Stage order: {stage_order}")
+            logger.info(f"✅ Initial completed stages: {completed_stages}")
+            logger.info(f"❌ Initial failed stages: {failed_stages}")
+            
+            # Use full stage order for progress calculation (6 stages total)
+            full_stage_order = self.stage_config.get_stage_order(analysis_type)
+            total_stages = len(full_stage_order)
+            logger.info(f"📊 Progress calculation: Using full {total_stages} stages for progress")
+            
+            iteration = 0
+            while len(completed_stages) + len(failed_stages) < total_stages:
+                iteration += 1
+                logger.info(f"🔄 STAGE LOOP ITERATION {iteration} for {symbol}")
+                logger.info(f"📊 Current status: {len(completed_stages)} completed, {len(failed_stages)} failed, {total_stages} total")
+                
                 # Get parallel stages that can be executed (excluding failed stages)
                 parallel_stages = self.stage_config.get_parallel_stages(analysis_type, completed_stages)
+                logger.info(f"🔄 Parallel stages from config: {parallel_stages}")
                 
                 # Filter out already failed stages
                 parallel_stages = [stage for stage in parallel_stages if stage not in failed_stages]
+                logger.info(f"🔄 Parallel stages after filtering: {parallel_stages}")
                 
                 if not parallel_stages:
-                    logger.warning("No more stages can be executed")
+                    logger.warning(f"⚠️ No more stages can be executed for {symbol}")
+                    logger.warning(f"📊 Final status: {len(completed_stages)} completed, {len(failed_stages)} failed")
+                    logger.warning(f"📋 Remaining stages: {[s for s in stage_order if s not in completed_stages and s not in failed_stages]}")
                     break
                 
                 if len(parallel_stages) == 1:
                     # Single stage - execute normally
                     stage_name = parallel_stages[0]
-                    logger.info(f"Processing stage: {stage_name} for {symbol}")
+                    logger.info(f"🎯 EXECUTING SINGLE STAGE: {stage_name} for {symbol}")
+                    logger.info(f"📊 Stage execution order: {len(completed_stages) + 1}/{total_stages}")
                     
                     success, result, error = self._execute_stage(
                         job_id, symbol, analysis_type, stage_name, stage_results
@@ -115,10 +155,13 @@ class StageProcessor:
                     if success:
                         completed_stages.append(stage_name)
                         stage_results[stage_name] = result
-                        logger.info(f"Stage {stage_name} completed successfully")
+                        logger.info(f"✅ STAGE SUCCESS: {stage_name} completed successfully")
+                        logger.info(f"📊 Updated completed stages: {completed_stages}")
+                        logger.info(f"📊 Remaining stages: {[s for s in stage_order if s not in completed_stages and s not in failed_stages]}")
                     else:
-                        logger.error(f"Stage {stage_name} failed: {error}")
+                        logger.error(f"❌ STAGE FAILED: {stage_name} failed: {error}")
                         failed_stages.append(stage_name)
+                        logger.error(f"📊 Updated failed stages: {failed_stages}")
                         
                         # Check if this is a critical error that should fail the entire job
                         if self._is_critical_error(error) or self._is_critical_stage(stage_name):
@@ -151,13 +194,29 @@ class StageProcessor:
                                 return False
                             # Continue with other parallel stages even if one fails
             
+            # Log the final stage processing status
+            logger.info(f"🏁 STAGE PROCESSING LOOP COMPLETED for {symbol}")
+            logger.info(f"📊 Final status: {len(completed_stages)} completed, {len(failed_stages)} failed, {total_stages} total")
+            logger.info(f"✅ Completed stages: {completed_stages}")
+            logger.info(f"❌ Failed stages: {failed_stages}")
+            logger.info(f"📋 Expected stages: {full_stage_order}")
+            
+            # Check if all expected stages were completed
+            missing_stages = [s for s in full_stage_order if s not in completed_stages and s not in failed_stages]
+            if missing_stages:
+                logger.warning(f"⚠️ MISSING STAGES: {missing_stages}")
+                logger.warning(f"⚠️ These stages were not executed: {missing_stages}")
+            else:
+                logger.info(f"✅ ALL STAGES EXECUTED: All {total_stages} stages were processed")
+            
             # Check if job should be marked as failed due to too many failed stages
-            if failed_stages and len(failed_stages) >= len(stage_order) * 0.5:  # More than 50% failed
-                logger.error(f"Too many failed stages ({len(failed_stages)}/{len(stage_order)}). Failing job.")
+            if failed_stages and len(failed_stages) >= total_stages * 0.5:  # More than 50% failed
+                logger.error(f"❌ TOO MANY FAILED STAGES: ({len(failed_stages)}/{total_stages}). Failing job.")
                 self._mark_job_as_failed(job_id, f"Too many failed stages: {failed_stages}")
                 return False
             
-            logger.info(f"Job processing completed for {symbol}. Completed stages: {completed_stages}, Failed stages: {failed_stages}")
+            logger.info(f"🎉 JOB PROCESSING COMPLETED for {symbol}")
+            logger.info(f"📊 Final result: {len(completed_stages)} completed, {len(failed_stages)} failed")
             
             # Mark job as completed in database
             self._mark_job_as_completed(job_id, completed_stages, failed_stages)
@@ -314,14 +373,10 @@ class StageProcessor:
                 result = self._execute_data_collection_and_analysis(symbol, analysis_type)
             elif stage_name == "technical_and_combined_scoring":
                 result = self._execute_technical_and_combined_scoring(symbol, previous_results)
-            elif stage_name == "forensic_analysis":
-                result = self._execute_forensic_analysis(symbol, previous_results)
-            elif stage_name == "module_selection":
-                result = self._execute_module_selection(symbol, previous_results)
-            elif stage_name == "risk_assessment":
-                result = self._execute_risk_assessment(symbol, previous_results)
-            elif stage_name == "final_decision":
-                result = self._execute_final_decision(symbol, previous_results)
+            elif stage_name == "simple_analysis":
+                result = self._execute_simple_analysis(symbol, previous_results)
+            elif stage_name == "simple_decision":
+                result = self._execute_simple_decision(symbol, previous_results)
             elif stage_name == "verdict_synthesis":
                 result = self._execute_verdict_synthesis(symbol, previous_results)
             elif stage_name == "final_scoring":
@@ -343,6 +398,14 @@ class StageProcessor:
                     confidence = float(final_reco.get("confidence", 0.0))
                     rationale = final_reco.get("rationale")
                     final_score = float(result.get("final_score", 0.0))
+
+                    logger.info(f"🔍 STAGE_EXECUTION: Routing data for {symbol}")
+                    logger.info(f"  - synthesis keys: {list(synthesis.keys()) if synthesis else 'None'}")
+                    logger.info(f"  - final_reco keys: {list(final_reco.keys()) if final_reco else 'None'}")
+                    logger.info(f"  - action: {action}")
+                    logger.info(f"  - confidence: {confidence}")
+                    logger.info(f"  - rationale: {rationale}")
+                    logger.info(f"  - final_score: {final_score}")
 
                     route_post_scoring(
                         symbol=symbol,
@@ -561,6 +624,8 @@ class StageProcessor:
     
     def _execute_final_scoring(self, symbol: str, previous_results: Dict[str, Any]) -> Dict[str, Any]:
         """Execute final scoring stage"""
+        logger.info(f"🔍 FINAL_SCORING: Starting for {symbol}")
+        
         # Correct sources: combined score from stage2, confidence from verdict synthesis
         stage2 = previous_results.get("technical_and_combined_scoring", {}) or {}
         combined_scoring = stage2.get("combined_scoring", {}) or {}
@@ -570,14 +635,26 @@ class StageProcessor:
         final_reco = verdict_stage.get("final_recommendation", {}) or {}
         ai_confidence = float(final_reco.get("confidence", 0.0))
         
+        logger.info(f"🔍 FINAL_SCORING: Input data for {symbol}")
+        logger.info(f"  - combined_score: {combined_score}")
+        logger.info(f"  - verdict_stage keys: {list(verdict_stage.keys()) if verdict_stage else 'None'}")
+        logger.info(f"  - final_reco keys: {list(final_reco.keys()) if final_reco else 'None'}")
+        logger.info(f"  - ai_confidence: {ai_confidence}")
+        
         # Fallback: try final_decision if verdict_synthesis missing
         if ai_confidence == 0.0:
+            logger.warning(f"⚠️ FINAL_SCORING: ai_confidence is 0.0, trying fallback for {symbol}")
             fd = previous_results.get("final_decision", {}) or {}
             if isinstance(fd, dict):
                 ai_confidence = float(fd.get("confidence", ai_confidence))
+                logger.info(f"  - fallback ai_confidence: {ai_confidence}")
         
         # Calculate final blended score (50% combined, 30% AI confidence, 20% confidence blend)
         final_score = 0.5 * combined_score + 0.3 * ai_confidence + 0.2 * (combined_score * ai_confidence)
+        
+        logger.info(f"🔍 FINAL_SCORING: Calculated final_score for {symbol}")
+        logger.info(f"  - final_score: {final_score}")
+        logger.info(f"  - meets_threshold: {final_score >= 0.5}")
         
         return {
             "final_score": final_score,
@@ -722,119 +799,75 @@ class StageProcessor:
             "status": "success"
         }
     
-    def _execute_forensic_analysis(self, symbol: str, previous_results: Dict[str, Any]) -> Dict[str, Any]:
-        """Execute forensic analysis stage"""
-        # Get database data (no dependency on previous stages)
-        db_data = previous_results.get("database_data", {})
+    def _execute_simple_analysis(self, symbol: str, previous_results: Dict[str, Any]) -> Dict[str, Any]:
+        """Execute simple analysis stage (replaces forensic_analysis)"""
+        # FIX: Get database data from job analysis instead of previous_results
+        db_data = self._get_database_data_from_job(symbol, previous_results)
         
         # Extract required inputs from database data
         fundamental_score = db_data.get("fundamental_score", {})
         raw_technical_data = db_data.get("raw_technical_data", {})
         enhanced_fundamentals = db_data.get("enhanced_fundamentals", {})
         
-        # Call multi-stage prompting service for forensic analysis only
-        forensic_result = multi_stage_prompting_service._stage1_forensic_analysis(
+        # Call new 2-stage method for simple analysis
+        simple_analysis_result = multi_stage_prompting_service._stage1_simple_analysis(
             symbol, 
             fundamental_score,
             raw_technical_data,
             enhanced_fundamentals
         )
         
-        if not forensic_result:
-            raise ValueError("Forensic analysis failed")
+        if not simple_analysis_result:
+            raise ValueError("Simple analysis failed")
         
-        return forensic_result
+        return simple_analysis_result
     
-    def _execute_module_selection(self, symbol: str, previous_results: Dict[str, Any]) -> Dict[str, Any]:
-        """Execute module selection stage"""
-        # Get database data
-        db_data = previous_results.get("database_data", {})
+    def _execute_simple_decision(self, symbol: str, previous_results: Dict[str, Any]) -> Dict[str, Any]:
+        """Execute simple decision stage (replaces module_selection, risk_assessment, final_decision)"""
+        # FIX: Get database data from job analysis instead of previous_results
+        db_data = self._get_database_data_from_job(symbol, previous_results)
         
-        # Get forensic analysis result from previous stage
-        forensic_analysis = previous_results.get("forensic_analysis", {})
+        # Get simple analysis result from previous stage
+        simple_analysis = previous_results.get("simple_analysis", {})
         
         # Extract required inputs from database data
         fundamental_score = db_data.get("fundamental_score", {})
         raw_technical_data = db_data.get("raw_technical_data", {})
         enhanced_fundamentals = db_data.get("enhanced_fundamentals", {})
         
-        # Call multi-stage prompting service for module selection only
-        module_result = multi_stage_prompting_service._stage2_module_selection(
+        # Call new 2-stage method for simple decision
+        simple_decision_result = multi_stage_prompting_service._stage2_simple_decision(
             symbol,
-            forensic_analysis,
+            simple_analysis,
             fundamental_score,
             raw_technical_data,
             enhanced_fundamentals
         )
         
-        if not module_result:
-            raise ValueError("Module selection failed")
+        if not simple_decision_result:
+            raise ValueError("Simple decision failed")
         
-        return module_result
+        return simple_decision_result
     
-    def _execute_risk_assessment(self, symbol: str, previous_results: Dict[str, Any]) -> Dict[str, Any]:
-        """Execute risk assessment stage"""
-        # Get database data
-        db_data = previous_results.get("database_data", {})
-        
-        # Get previous analysis results
-        forensic_analysis = previous_results.get("forensic_analysis", {})
-        module_analysis = previous_results.get("module_selection", {})
-        
-        # Extract required inputs from database data
-        fundamental_score = db_data.get("fundamental_score", {})
-        raw_technical_data = db_data.get("raw_technical_data", {})
-        
-        # Call multi-stage prompting service for risk assessment only
-        risk_result = multi_stage_prompting_service._stage3_risk_assessment(
-            symbol,
-            forensic_analysis,
-            module_analysis,
-            fundamental_score,
-            raw_technical_data
-        )
-        
-        if not risk_result:
-            raise ValueError("Risk assessment failed")
-        
-        return risk_result
-    
-    def _execute_final_decision(self, symbol: str, previous_results: Dict[str, Any]) -> Dict[str, Any]:
-        """Execute final decision stage"""
-        # Get database data
-        db_data = previous_results.get("database_data", {})
-        
-        # Get previous analysis results
-        forensic_analysis = previous_results.get("forensic_analysis", {})
-        module_analysis = previous_results.get("module_selection", {})
-        risk_assessment = previous_results.get("risk_assessment", {})
-        
-        # Extract required inputs from database data
-        fundamental_score = db_data.get("fundamental_score", {})
-        raw_technical_data = db_data.get("raw_technical_data", {})
-        
-        # Call multi-stage prompting service for final decision only
-        decision_result = multi_stage_prompting_service._stage4_final_decision(
-            symbol,
-            forensic_analysis,
-            module_analysis,
-            risk_assessment,
-            fundamental_score,
-            raw_technical_data
-        )
-        
-        if not decision_result:
-            raise ValueError("Final decision failed")
-        
-        return decision_result
     
     def _execute_verdict_synthesis(self, symbol: str, previous_results: Dict[str, Any]) -> Dict[str, Any]:
         """Execute verdict synthesis stage"""
-        # Get all AI analysis results
+        logger.info(f"🔍 VERDICT_SYNTHESIS: Starting for {symbol}")
+        
+        # Get all AI analysis results (compatibility layer ensures these exist)
         forensic_analysis = previous_results.get("forensic_analysis", {})
         module_analysis = previous_results.get("module_selection", {})
         risk_assessment = previous_results.get("risk_assessment", {})
         final_decision = previous_results.get("final_decision", {})
+        
+        # Also get the new 2-stage results for reference
+        simple_analysis = previous_results.get("simple_analysis", {})
+        simple_decision = previous_results.get("simple_decision", {})
+        
+        logger.info(f"🔍 VERDICT_SYNTHESIS: Input data for {symbol}")
+        logger.info(f"  - simple_analysis keys: {list(simple_analysis.keys()) if simple_analysis else 'None'}")
+        logger.info(f"  - simple_decision keys: {list(simple_decision.keys()) if simple_decision else 'None'}")
+        logger.info(f"  - final_decision keys: {list(final_decision.keys()) if final_decision else 'None'}")
         
         # Synthesize the results
         synthesis_result = {
@@ -845,16 +878,50 @@ class StageProcessor:
         }
         
         # Create final recommendation based on the synthesis
+        # FIX: Use simple_decision data instead of final_decision for new 2-stage system
+        # The data is directly in simple_decision, not in simple_decision.data
+        simple_decision_data = simple_decision.get("data", {}) if simple_decision.get("data") else simple_decision
+        
+        logger.info(f"🔍 VERDICT_SYNTHESIS: simple_decision_data for {symbol}")
+        logger.info(f"  - simple_decision_data keys: {list(simple_decision_data.keys()) if simple_decision_data else 'None'}")
+        
+        if simple_decision_data:
+            decision = simple_decision_data.get("decision", "avoid")
+            confidence = simple_decision_data.get("confidence", 0.5)
+            position_size = simple_decision_data.get("position_size", "0%")
+            reasoning = simple_decision_data.get("reasoning", "Analysis completed")
+            stop_loss = simple_decision_data.get("stop_loss", 0.0)
+            
+            logger.info(f"🔍 VERDICT_SYNTHESIS: Extracted values for {symbol}")
+            logger.info(f"  - decision: {decision}")
+            logger.info(f"  - confidence: {confidence}")
+            logger.info(f"  - position_size: {position_size}")
+            logger.info(f"  - reasoning: {reasoning}")
+            logger.info(f"  - stop_loss: {stop_loss}")
+        else:
+            logger.warning(f"⚠️ VERDICT_SYNTHESIS: No simple_decision_data found for {symbol}")
+            decision = "avoid"
+            confidence = 0.5
+            position_size = "0%"
+            reasoning = "Analysis completed"
+            stop_loss = 0.0
+        
         final_recommendation = {
-            "action": final_decision.get("action", "avoid"),
-            "confidence": final_decision.get("confidence", 0.5),
-            "position_size": final_decision.get("position_size", "0%"),
-            "rationale": final_decision.get("rationale", "Analysis completed"),
+            "action": decision.lower(),
+            "confidence": confidence,
+            "position_size": position_size,
+            "rationale": reasoning,
             "stop_loss": {
                 "reasoning": "Based on technical analysis",
-                "price": 0.0  # This would be calculated from technical data
+                "price": stop_loss
             }
         }
+        
+        logger.info(f"🔍 VERDICT_SYNTHESIS: Final recommendation for {symbol}")
+        logger.info(f"  - action: {final_recommendation['action']}")
+        logger.info(f"  - confidence: {final_recommendation['confidence']}")
+        logger.info(f"  - position_size: {final_recommendation['position_size']}")
+        logger.info(f"  - rationale: {final_recommendation['rationale']}")
         
         return {
             "synthesis_result": synthesis_result,
@@ -1003,14 +1070,12 @@ class StageProcessor:
             # Get cached stages and preserve the new 8-stage structure
             cached_stages = cached_analysis.get("stages", {})
             
-            # Define the new 8-stage order for consistency
+            # Define the new 6-stage order for consistency (updated 2-stage pipeline)
             new_stage_order = [
                 "data_collection_and_analysis",
                 "technical_and_combined_scoring", 
-                "forensic_analysis",
-                "module_selection",
-                "risk_assessment",
-                "final_decision",
+                "simple_analysis",
+                "simple_decision",
                 "verdict_synthesis",
                 "final_scoring"
             ]
@@ -1147,6 +1212,74 @@ class StageProcessor:
             
         except Exception as e:
             logger.error(f"Failed to copy cached analysis to job {job_id}: {e}")
+    
+    def _store_database_data_in_job(self, job_id: str, db_data: Dict[str, Any]) -> bool:
+        """Store database_data in job analysis for AI stages to access"""
+        try:
+            from app.db.firestore_client import firestore_client
+            
+            # Get current job analysis data
+            current_analysis = firestore_client.get_job_analysis_data(job_id)
+            if not current_analysis:
+                logger.error(f"No job analysis data found for {job_id}")
+                return False
+            
+            # Update the stages with database_data
+            stages = current_analysis.get("stages", {})
+            stages["database_data"] = db_data
+            
+            # Update the job analysis data in database
+            success = firestore_client.update_job_analysis_data(job_id, {"stages": stages})
+            
+            if success:
+                logger.info(f"✅ Stored database_data in job {job_id} analysis")
+            else:
+                logger.error(f"❌ Failed to store database_data in job {job_id} analysis")
+            
+            return success
+            
+        except Exception as e:
+            logger.error(f"Error storing database_data in job {job_id}: {e}")
+            return False
+    
+    def _get_database_data_from_job(self, symbol: str, previous_results: Dict[str, Any]) -> Dict[str, Any]:
+        """Get database_data from job analysis for AI stages"""
+        try:
+            # First try to get from previous_results (for backward compatibility)
+            db_data = previous_results.get("database_data", {})
+            if db_data:
+                logger.debug(f"Using database_data from previous_results for {symbol}")
+                return db_data
+            
+            # If not in previous_results, get from job analysis
+            from app.db.firestore_client import firestore_client
+            
+            # Get job_id from previous_results or find it
+            job_id = previous_results.get("job_id")
+            if not job_id:
+                # Try to find job by symbol
+                jobs = firestore_client.list_jobs(limit=1)
+                for job in jobs:
+                    if job.get("symbol") == symbol:
+                        job_id = job.get("job_id")
+                        break
+            
+            if job_id:
+                current_analysis = firestore_client.get_job_analysis_data(job_id)
+                if current_analysis:
+                    stages = current_analysis.get("stages", {})
+                    db_data = stages.get("database_data", {})
+                    if db_data:
+                        logger.debug(f"Retrieved database_data from job analysis for {symbol}")
+                        return db_data
+            
+            # Fallback to empty dict
+            logger.warning(f"No database_data found for {symbol}, using empty data")
+            return {}
+            
+        except Exception as e:
+            logger.error(f"Error getting database_data for {symbol}: {e}")
+            return {}
 
 # Singleton instance
 stage_processor = StageProcessor()

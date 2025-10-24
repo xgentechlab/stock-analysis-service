@@ -42,6 +42,15 @@ def route_post_scoring(
     try:
         # Lazy import to avoid circular dependencies at import time
         from app.db.firestore_client import firestore_client
+        
+        logger.info(f"🔍 POST_SCORING_ROUTER: Starting routing for {symbol}")
+        logger.info(f"  - job_id: {job_id}")
+        logger.info(f"  - action: {action}")
+        logger.info(f"  - final_score: {final_score}")
+        logger.info(f"  - confidence: {confidence}")
+        logger.info(f"  - rationale: {rationale}")
+        logger.info(f"  - user_id: {user_id}")
+        
         logger.info(
             "[post_scoring_router] Routing decision for symbol=%s job_id=%s action=%s final_score=%.3f confidence=%.3f",
             symbol,

@@ -31,44 +31,28 @@ class StageConfigService:
                 dependencies=["data_collection_and_analysis"],
                 order=2
             ),
-            "forensic_analysis": StageMapping(
-                stage_name="forensic_analysis",
-                display_name="Forensic Analysis",
-                description="Detailed forensic financial analysis",
+            "simple_analysis": StageMapping(
+                stage_name="simple_analysis",
+                display_name="Simple Analysis",
+                description="3-factor analysis: Setup, Catalyst, Confirmation with AI-enhanced risk-reward",
                 estimated_duration=5,
                 dependencies=["technical_and_combined_scoring"],
                 order=3
             ),
-            "module_selection": StageMapping(
-                stage_name="module_selection",
-                display_name="Module Selection",
-                description="Momentum vs value vs balanced analysis",
+            "simple_decision": StageMapping(
+                stage_name="simple_decision",
+                display_name="Simple Decision",
+                description="Clear BUY/WATCH/AVOID decision based on simple analysis",
                 estimated_duration=5,
-                dependencies=["technical_and_combined_scoring"],
-                order=3
-            ),
-            "risk_assessment": StageMapping(
-                stage_name="risk_assessment",
-                display_name="Risk Assessment",
-                description="Risk identification and position sizing",
-                estimated_duration=5,
-                dependencies=["technical_and_combined_scoring"],
-                order=3
-            ),
-            "final_decision": StageMapping(
-                stage_name="final_decision",
-                display_name="Final Decision",
-                description="Binary buy/sell/watch decision based on all previous AI analysis",
-                estimated_duration=5,
-                dependencies=["forensic_analysis", "module_selection", "risk_assessment"],
+                dependencies=["simple_analysis"],
                 order=4
             ),
             "verdict_synthesis": StageMapping(
                 stage_name="verdict_synthesis",
                 display_name="Verdict Synthesis",
-                description="Combining results from all AI analysis stages",
+                description="Combining results from simple analysis and decision stages",
                 estimated_duration=2,
-                dependencies=["forensic_analysis", "module_selection", "risk_assessment", "final_decision"],
+                dependencies=["simple_analysis", "simple_decision"],
                 order=5
             ),
             "final_scoring": StageMapping(
