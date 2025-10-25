@@ -35,9 +35,6 @@ class MultiTimeframeAnalysis(BaseModel):
     created_at: datetime
     updated_at: datetime
     
-    # Multi-timeframe data
-    timeframes: Dict[str, MultiTimeframeData]  # timeframe -> data
-    
     # Technical indicators across timeframes
     technical_indicators: Dict[str, Any] = Field(default_factory=dict)
     

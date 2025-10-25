@@ -881,25 +881,12 @@ class StocksService:
             analysis_id = str(uuid.uuid4())
             now = datetime.now(timezone.utc)
             
-            # Prepare multi-timeframe data
-            timeframes = {}
-            for tf_name in ['1m', '5m', '15m', '1d', '1wk']:
-                ohlcv_data = ticker_data.get(f"ohlcv_{tf_name}")
-                if ohlcv_data is not None and not ohlcv_data.empty:
-                    timeframes[tf_name] = {
-                        "timeframe": tf_name,
-                        "data": ohlcv_data.to_dict('records'),
-                        "last_updated": now.isoformat(),
-                        "data_points": len(ohlcv_data)
-                    }
-            
             # Create multi-timeframe analysis document
             mtf_analysis = {
                 "symbol": symbol,
                 "analysis_id": analysis_id,
                 "created_at": now.isoformat(),
                 "updated_at": now.isoformat(),
-                "timeframes": timeframes,
                 "technical_indicators": technical_analysis.get("technical_indicators", {}),
                 "trend_analysis": technical_analysis.get("trend_alignment", {}),  # Fixed field name
                 "momentum_scores": technical_analysis.get("momentum_scores", {}),

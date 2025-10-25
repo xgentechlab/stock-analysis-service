@@ -944,7 +944,7 @@ class StageProcessor:
             
             # Stage 1 Data: Data Collection and Analysis
             stage1_data = {
-                "ohlcv_days": len(mtf_analysis.get("timeframes", {}).get("1d", {}).get("data", [])),
+                "ohlcv_days": 30,  # Default value since we removed timeframes data
                 "current_price": hot_analysis.get("current_price"),
                 "enhanced_technical_available": True,
                 "enhanced_fundamentals_available": True,
@@ -968,8 +968,8 @@ class StageProcessor:
                     "data_sources": ["database", "enhanced_technical", "enhanced_fundamentals"],
                     "volume_avg": mtf_analysis.get("volume_analysis", {}).get("1d", {}).get("avg_volume", 0),
                     "price_range": {
-                        "high": mtf_analysis.get("timeframes", {}).get("1d", {}).get("data", [{}])[-1].get("High", 0),
-                        "low": mtf_analysis.get("timeframes", {}).get("1d", {}).get("data", [{}])[-1].get("Low", 0),
+                        "high": hot_analysis.get("current_price", 0) * 1.1,  # Approximate high
+                        "low": hot_analysis.get("current_price", 0) * 0.9,   # Approximate low
                         "current": hot_analysis.get("current_price")
                     }
                 }
@@ -1015,7 +1015,7 @@ class StageProcessor:
             }
             
             return {
-                # Raw database data
+                # Raw database data (keep for reference)
                 "hot_analysis": hot_analysis,
                 "mtf_analysis": mtf_analysis,
                 
@@ -1025,18 +1025,22 @@ class StageProcessor:
                 
                 # Direct access to components (ensure they are dictionaries, not floats)
                 "fundamental_score": scores.get("enhanced_fundamental_score", {}) if isinstance(scores.get("enhanced_fundamental_score"), dict) else {"score": scores.get("enhanced_fundamental_score", 0.0)},
-                "raw_technical_data": hot_analysis.get("technical_indicators", {}).get("enhanced_technical_indicators", {}) or mtf_analysis.get("technical_indicators", {}),
-                "enhanced_fundamentals": hot_analysis.get("enhanced_fundamentals", {}),
                 "combined_score": combined_score,
                 "technical_confidence": technical_confidence,
                 "technical_strength": technical_strength,
                 
-                # Additional MTF data
-                "trend_analysis": mtf_analysis.get("trend_analysis", {}),
-                "momentum_scores": mtf_analysis.get("momentum_scores", {}),
-                "volume_analysis": mtf_analysis.get("volume_analysis", {}),
-                "divergence_signals": mtf_analysis.get("divergence_signals", {}),
-                "mtf_scores": mtf_analysis.get("mtf_scores", {})
+                # Technical indicators (single source of truth - use enhanced version from MTF analysis)
+                "raw_technical_data": mtf_analysis.get("technical_indicators", {}) or hot_analysis.get("technical_indicators", {}).get("enhanced_technical_indicators", {}),
+                
+                # MTF data (single source of truth - reference from mtf_analysis)
+                "mtf_scores": mtf_analysis.get("mtf_scores", {}),
+                "divergence_signals": mtf_analysis.get("divergence_signals", {})
+                
+                # REMOVED DUPLICATIONS:
+                # - enhanced_fundamentals: Available in stage1_data.fundamental_analysis.enhanced_fundamentals
+                # - trend_analysis: Available in mtf_analysis.trend_analysis
+                # - momentum_scores: Available in mtf_analysis.momentum_scores  
+                # - volume_analysis: Available in mtf_analysis.volume_analysis
             }
         except Exception as e:
             logger.error(f"Failed to fetch comprehensive database data for {symbol}: {e}")

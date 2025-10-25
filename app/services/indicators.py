@@ -172,6 +172,7 @@ def calculate_technical_snapshot(ohlcv_data: pd.DataFrame) -> Dict[str, Optional
         # Current values (latest)
         current_close = close.iloc[-1]
         current_sma20 = sma20.iloc[-1] if not pd.isna(sma20.iloc[-1]) else None
+        # SMA_50: Skip if insufficient data (less than 50 days) - this is expected behavior
         current_sma50 = sma50.iloc[-1] if not pd.isna(sma50.iloc[-1]) else None
         current_ema12 = ema12.iloc[-1] if not pd.isna(ema12.iloc[-1]) else None
         current_ema26 = ema26.iloc[-1] if not pd.isna(ema26.iloc[-1]) else None

@@ -285,17 +285,44 @@ class EnhancedFundamentalAnalysis:
                 dpo = 365 / payables_turnover if payables_turnover > 0 else 0
                 ccc = dio + dso - dpo
             
-            return {
-                "roe_consistency": roe_consistency,
-                "debt_equity_ratio": debt_equity,
-                "interest_coverage": interest_coverage,
-                "cash_conversion_cycle": ccc,
-                "current_ratio": self._safe_get_float(info, "currentRatio"),
-                "quick_ratio": self._safe_get_float(info, "quickRatio"),
-                "gross_margin": self._safe_get_float(info, "grossMargins"),
-                "operating_margin": self._safe_get_float(info, "operatingMargins"),
-                "net_margin": self._safe_get_float(info, "profitMargins")
-            }
+            # Only include quality metrics that are available
+            # Skip commonly NULL metrics that are not essential
+            quality_metrics = {}
+            
+            if roe_consistency is not None:
+                quality_metrics["roe_consistency"] = roe_consistency
+                
+            if debt_equity is not None:
+                quality_metrics["debt_equity_ratio"] = debt_equity
+                
+            if interest_coverage is not None:
+                quality_metrics["interest_coverage"] = interest_coverage
+                
+            if ccc is not None:
+                quality_metrics["cash_conversion_cycle"] = ccc
+                
+            # These are commonly NULL in yfinance, only include if available
+            current_ratio = self._safe_get_float(info, "currentRatio")
+            if current_ratio is not None:
+                quality_metrics["current_ratio"] = current_ratio
+                
+            quick_ratio = self._safe_get_float(info, "quickRatio")
+            if quick_ratio is not None:
+                quality_metrics["quick_ratio"] = quick_ratio
+                
+            gross_margin = self._safe_get_float(info, "grossMargins")
+            if gross_margin is not None:
+                quality_metrics["gross_margin"] = gross_margin
+                
+            operating_margin = self._safe_get_float(info, "operatingMargins")
+            if operating_margin is not None:
+                quality_metrics["operating_margin"] = operating_margin
+                
+            net_margin = self._safe_get_float(info, "profitMargins")
+            if net_margin is not None:
+                quality_metrics["net_margin"] = net_margin
+                
+            return quality_metrics
             
         except Exception as e:
             logger.error(f"Error extracting quality metrics: {e}")
@@ -408,15 +435,27 @@ class EnhancedFundamentalAnalysis:
                     logger.debug(f"Error calculating FCF growth: {e}")
                     pass
             
-            return {
-                "revenue_cagr": revenue_cagr,
-                "eps_growth_qoq": eps_growth_qoq,
-                "eps_growth_yoy": eps_growth_yoy,
-                "book_value_growth": bv_growth,
-                "free_cash_flow_growth": fcf_growth_rate,
-                "revenue_growth_3y": revenue_cagr,
-                "earnings_growth_3y": None  # Would need more historical data
-            }
+            # Only include growth metrics that are available
+            # Skip commonly NULL metrics that require complex calculations
+            growth_metrics = {}
+            
+            if revenue_cagr is not None:
+                growth_metrics["revenue_cagr"] = revenue_cagr
+                growth_metrics["revenue_growth_3y"] = revenue_cagr
+                
+            if eps_growth_qoq is not None:
+                growth_metrics["eps_growth_qoq"] = eps_growth_qoq
+                
+            if eps_growth_yoy is not None:
+                growth_metrics["eps_growth_yoy"] = eps_growth_yoy
+                
+            if bv_growth is not None:
+                growth_metrics["book_value_growth"] = bv_growth
+                
+            if fcf_growth_rate is not None:
+                growth_metrics["free_cash_flow_growth"] = fcf_growth_rate
+                
+            return growth_metrics
             
         except Exception as e:
             logger.error(f"Error extracting growth metrics: {e}")
@@ -477,12 +516,13 @@ class EnhancedFundamentalAnalysis:
                 if sector_pe and sector_pe > 0:
                     pe_vs_industry = pe_ratio / sector_pe
             
-            return {
+            # Only include metrics that are available from yfinance or calculated
+            # Skip commonly NULL metrics that are not essential
+            value_metrics = {
                 "pe_ratio": pe_ratio,
                 "pb_ratio": pb_ratio,
                 "ps_ratio": ps_ratio,
                 "ev_ebitda": ev_ebitda,
-                "peg_ratio": peg_ratio,
                 "dividend_yield": dividend_yield,
                 "dividend_rate": dividend_rate,
                 "pe_vs_industry": pe_vs_industry,
@@ -492,6 +532,12 @@ class EnhancedFundamentalAnalysis:
                 "industry_pb": industry_pb,
                 "industry_ev_ebitda": industry_ev_ebitda
             }
+            
+            # Only add peg_ratio if it's available (commonly NULL in yfinance)
+            if peg_ratio is not None:
+                value_metrics["peg_ratio"] = peg_ratio
+                
+            return value_metrics
             
         except Exception as e:
             logger.error(f"Error extracting value metrics: {e}")
@@ -572,17 +618,40 @@ class EnhancedFundamentalAnalysis:
                                 (fifty_two_week_high - fifty_two_week_low)) * 100
                 price_momentum = self._sanitize_float(price_momentum)
             
-            return {
-                "earnings_surprise": earnings_surprise,
-                "guidance_revisions": guidance_revisions,
-                "analyst_score": analyst_score,
-                "recommendation_mean": recommendation_mean,
-                "institutional_holdings": institutional_holdings,
-                "price_momentum": price_momentum,
-                "fifty_two_week_high": fifty_two_week_high,
-                "fifty_two_week_low": fifty_two_week_low,
-                "beta": self._safe_get_float(info, "beta")
-            }
+            # Only include momentum metrics that are available
+            # Skip commonly NULL metrics that are not essential
+            momentum_metrics = {}
+            
+            if earnings_surprise is not None:
+                momentum_metrics["earnings_surprise"] = earnings_surprise
+                
+            if guidance_revisions is not None:
+                momentum_metrics["guidance_revisions"] = guidance_revisions
+                
+            if analyst_score is not None:
+                momentum_metrics["analyst_score"] = analyst_score
+                
+            if recommendation_mean is not None:
+                momentum_metrics["recommendation_mean"] = recommendation_mean
+                
+            if institutional_holdings is not None:
+                momentum_metrics["institutional_holdings"] = institutional_holdings
+                
+            if price_momentum is not None:
+                momentum_metrics["price_momentum"] = price_momentum
+                
+            if fifty_two_week_high is not None:
+                momentum_metrics["fifty_two_week_high"] = fifty_two_week_high
+                
+            if fifty_two_week_low is not None:
+                momentum_metrics["fifty_two_week_low"] = fifty_two_week_low
+                
+            # Beta is commonly NULL in yfinance, only include if available
+            beta = self._safe_get_float(info, "beta")
+            if beta is not None:
+                momentum_metrics["beta"] = beta
+                
+            return momentum_metrics
             
         except Exception as e:
             logger.error(f"Error extracting momentum metrics: {e}")

@@ -268,6 +268,7 @@ def _compute_signals_for_symbol(symbol: str, use_enhanced_indicators: bool = Tru
                 
                 # Add enhanced indicators to signals
                 signals.update({
+                    "current_price": price_end,  # NON-NEGOTIABLE: Store current price
                     "rsi": technical_data.get('rsi14'),
                     "macd": technical_data.get('macd'),
                     "macd_signal": technical_data.get('macd_signal'),

@@ -18,6 +18,8 @@ Collections that will be cleared:
 - portfolio (user portfolios)
 - user_decisions (user trading decisions)
 - portfolio_suggestions (portfolio suggestions)
+- multi_timeframe_analyses (multi-timeframe technical analysis data)
+- hot_stock_analyses (hot stock analysis data)
 """
 
 import os
@@ -56,7 +58,9 @@ class CompleteDatabaseCleaner:
             "watchlist",
             "portfolio",
             "user_decisions",
-            "portfolio_suggestions"
+            "portfolio_suggestions",
+            "multi_timeframe_analyses",
+            "hot_stock_analyses"
         ]
         
         # Collections that are safe to delete (user data)
@@ -75,7 +79,9 @@ class CompleteDatabaseCleaner:
             "positions",
             "fills",
             "audits",
-            "configs"
+            "configs",
+            "multi_timeframe_analyses",
+            "hot_stock_analyses"
         ]
         
     def get_collection_count(self, collection_name: str) -> int:
@@ -310,6 +316,11 @@ def main():
         logger.info(f"\n🎉 Complete database cleanup completed successfully!")
         logger.info(f"📈 Total documents deleted: {total_deleted}")
         logger.info(f"🗃️  Collections cleared: {len([c for c, count in results.items() if count > 0])}")
+        
+        # Note about storage optimization
+        if 'multi_timeframe_analyses' in results and results['multi_timeframe_analyses'] > 0:
+            logger.info(f"💾 Note: multi_timeframe_analyses documents are now optimized (no timeframes data)")
+            logger.info(f"   This significantly reduces storage usage compared to previous versions.")
         
         return 0
         
