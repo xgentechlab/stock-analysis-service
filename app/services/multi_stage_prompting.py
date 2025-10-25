@@ -102,30 +102,85 @@ class MultiStagePromptingService:
     def _calculate_risk_reward_once(self, symbol: str, technical: Dict[str, Any], 
                                    fundamentals: Dict[str, Any] = None, enhanced_fundamentals: Dict[str, Any] = None) -> Dict[str, Any]:
         """
-        HYBRID: Calculate risk-reward once with AI enhancement for better interpretation
-        Combines reliable code calculation with intelligent AI context analysis
+        ENHANCED: Calculate risk-reward with real money impacts and plain English translation
         """
         try:
-            current_price = technical.get('current_price', technical.get('close', 0))
+            logger.info(f"🔍 MULTI_STAGE: Received technical data keys: {list(technical.keys())}")
+            logger.info(f"🔍 MULTI_STAGE: Full technical data structure:")
+            for key, value in technical.items():
+                if isinstance(value, dict):
+                    logger.info(f"  {key}: {list(value.keys()) if value else 'empty dict'}")
+                else:
+                    logger.info(f"  {key}: {value}")
+            
+            logger.info(f"🔍 MULTI_STAGE: technical.get('basic_indicators') = {technical.get('basic_indicators')}")
+            logger.info(f"🔍 MULTI_STAGE: technical.get('current_price') = {technical.get('current_price')}")
+            logger.info(f"🔍 MULTI_STAGE: technical.get('close') = {technical.get('close')}")
+            
+            # Look for current_price in basic_indicators first, then fallback to direct technical data
+            basic_indicators = technical.get('basic_indicators', {})
+            logger.info(f"🔍 MULTI_STAGE: basic_indicators = {basic_indicators}")
+            
+            current_price = (basic_indicators.get('current_price') or 
+                           basic_indicators.get('close') or 
+                           technical.get('current_price') or 
+                           technical.get('close') or 0)
+            
+            logger.info(f"🔍 MULTI_STAGE: Final current_price = {current_price}")
+            
             if not current_price:
-                logger.warning(f"No current price available for {symbol}")
+                logger.warning(f"🔍 MULTI_STAGE: No current price available for {symbol}")
                 return {"error": "No current price available"}
             
             # Step 1: Core mathematical calculation (reliable)
+            logger.info(f"🔍 MAIN CALC: Starting risk-reward calculation for {symbol}")
+            logger.info(f"🔍 MAIN CALC: Current price = {current_price}")
+            
             resistance = self._calculate_resistance_level(technical)
             support = self._calculate_support_level(technical)
+            
+            logger.info(f"🔍 MAIN CALC: Calculated resistance = {resistance}")
+            logger.info(f"🔍 MAIN CALC: Calculated support = {support}")
+            
+            # Validate calculations
+            if resistance <= current_price:
+                logger.error(f"❌ CRITICAL: Resistance ({resistance}) <= Current Price ({current_price}) - This is impossible!")
+                resistance = current_price * 1.05  # Force valid resistance
+                logger.warning(f"🔧 FIXED: Set resistance to {resistance}")
+            
+            if support >= current_price:
+                logger.error(f"❌ CRITICAL: Support ({support}) >= Current Price ({current_price}) - This is impossible!")
+                support = current_price * 0.95  # Force valid support
+                logger.warning(f"🔧 FIXED: Set support to {support}")
             
             upside = resistance - current_price
             downside = current_price - support
             ratio = upside / downside if downside > 0 else 0
             
-            # Step 2: AI enhancement for context and interpretation
+            logger.info(f"🔍 MAIN CALC: Final values - Upside: {upside}, Downside: {downside}, Ratio: {ratio}")
+            
+            # Final validation
+            if ratio < 0:
+                logger.error(f"❌ CRITICAL: Negative risk-reward ratio ({ratio:.2f}) - This indicates calculation error!")
+                logger.error(f"Debug: Current={current_price}, Resistance={resistance}, Support={support}")
+                logger.error(f"Debug: Upside={upside}, Downside={downside}")
+                # Force positive ratio
+                ratio = max(0.1, ratio)  # Minimum 0.1:1 ratio
+                logger.warning(f"🔧 FIXED: Set ratio to {ratio}")
+            
+            # Step 2: Calculate real money impacts (no AI cost)
+            real_money_impacts = self._calculate_real_money_impacts(current_price, upside, downside, ratio)
+            
+            # Step 3: Identify top drivers (cost-optimized)
+            top_drivers = self._identify_top_drivers(symbol, technical, fundamentals, enhanced_fundamentals)
+            
+            # Step 4: AI enhancement for context and interpretation (optimized prompt)
             ai_enhancement = self._get_ai_risk_reward_enhancement(
                 symbol, current_price, resistance, support, upside, downside, ratio, 
                 technical, fundamentals, enhanced_fundamentals
             )
             
-            # Step 3: Combine reliable calculation with AI enhancement
+            # Step 5: Combine reliable calculation with AI enhancement
             risk_reward_data = {
                 "current_price": current_price,
                 "resistance_level": resistance,
@@ -137,7 +192,12 @@ class MultiStagePromptingService:
                 "risk_reward_ratio": ratio,
                 "ratio_interpretation": ai_enhancement.get("enhanced_interpretation", self._interpret_risk_reward_ratio(ratio)),
                 "calculation_steps": f"Upside: {resistance} - {current_price} = {upside:.2f}, Downside: {current_price} - {support} = {downside:.2f}, Ratio: {upside:.2f} / {downside:.2f} = {ratio:.2f}:1",
-                "ai_enhancement": ai_enhancement
+                "ai_enhancement": ai_enhancement,
+                # NEW: Real money impacts (no AI cost)
+                "real_money_impacts": real_money_impacts,
+                "plain_english_summary": self._create_plain_english_summary(ratio, real_money_impacts),
+                # NEW: Top drivers analysis
+                "top_drivers": top_drivers
             }
             
             logger.debug(f"🎯 Risk-reward calculated for {symbol}: {ratio:.2f}:1 (AI enhanced)")
@@ -152,90 +212,42 @@ class MultiStagePromptingService:
                                       downside: float, ratio: float, technical: Dict[str, Any],
                                       fundamentals: Dict[str, Any] = None, enhanced_fundamentals: Dict[str, Any] = None) -> Dict[str, Any]:
         """
-        AI enhancement for risk-reward calculation with market context
+        COST-OPTIMIZED: AI enhancement with plain English translation and contradiction resolution
         """
         try:
-            # Prepare market context data
-            market_context = {
-                "technical_indicators": {
-                    "rsi": technical.get('rsi_14', technical.get('rsi14')),
-                    "macd": technical.get('macd', technical.get('macd_signal')),
-                    "volume": technical.get('volume', technical.get('avg_volume')),
-                    "volatility": technical.get('volatility', technical.get('atr'))
-                },
-                "fundamental_context": {
-                    "pe_ratio": fundamentals.get('pe_ratio', fundamentals.get('trailing_pe')) if fundamentals else None,
-                    "market_cap": fundamentals.get('market_cap', fundamentals.get('market_capitalization')) if fundamentals else None,
-                    "sector": fundamentals.get('sector', fundamentals.get('industry')) if fundamentals else None
-                },
-                "price_levels": {
-                    "high_52w": technical.get('high_52w', technical.get('fifty_two_week_high')),
-                    "low_52w": technical.get('low_52w', technical.get('fifty_two_week_low')),
-                    "recent_high": technical.get('recent_high', technical.get('high')),
-                    "recent_low": technical.get('recent_low', technical.get('low'))
-                }
-            }
+            # Extract only key indicators to reduce token usage
+            rsi = technical.get('rsi_14', technical.get('rsi14'))
+            pe_ratio = fundamentals.get('pe_ratio', fundamentals.get('trailing_pe')) if fundamentals else None
+            sector = fundamentals.get('sector', fundamentals.get('industry')) if fundamentals else None
             
-            prompt = f"""
-            RISK-REWARD ENHANCEMENT ANALYSIS - Enhance mathematical calculation with market intelligence
-            
-            === CALCULATED VALUES ===
-            - Current Price: ₹{current_price}
-            - Resistance Level: ₹{resistance}
-            - Support Level: ₹{support}
-            - Upside: ₹{upside} ({upside/current_price*100:.1f}%)
-            - Downside: ₹{downside} ({downside/current_price*100:.1f}%)
-            - Risk-Reward Ratio: {ratio:.2f}:1
-            
-            === MARKET CONTEXT ===
-            {json.dumps(market_context, indent=2)}
-            
-            === ENHANCEMENT TASK ===
-            
-            Enhance this risk-reward calculation with intelligent market analysis:
-            
-            1. CONTEXT-AWARE INTERPRETATION:
-               - Is this ratio appropriate for current market conditions?
-               - How does it compare to similar setups in this sector?
-               - What market factors affect this calculation?
-            
-            2. DYNAMIC ADJUSTMENTS:
-               - Should resistance/support levels be adjusted based on technical context?
-               - Are there any special market conditions affecting this calculation?
-               - What external factors could impact these levels?
-            
-            3. ENHANCED INTERPRETATION:
-               - Provide nuanced interpretation beyond basic ratio
-               - Consider market volatility, sector trends, and economic conditions
-               - Suggest position sizing based on risk-reward quality
-            
-            4. QUALITY ASSESSMENT:
-               - Rate the quality of this risk-reward setup (0-1)
-               - Identify strengths and weaknesses
-               - Suggest improvements if needed
-            
-            Return as JSON:
-            {{
-                "context_interpretation": "text",
-                "market_adjustments": {{"resistance_adjustment": 0.0, "support_adjustment": 0.0, "reasoning": "text"}},
+            # COST-OPTIMIZED PROMPT - Much shorter and focused
+            prompt = f"""RISK-REWARD ANALYSIS: ₹{current_price} → ₹{resistance} (upside ₹{upside:.0f}) vs ₹{support} (downside ₹{downside:.0f}) = {ratio:.2f}:1
+
+Key Data: RSI {rsi}, P/E {pe_ratio}, Sector {sector}
+
+Tasks:
+1. Translate jargon: RSI {rsi} = ?, P/E {pe_ratio} = ?
+2. Resolve contradictions: Why bullish if RSI high/P/E high?
+3. Plain English: What this means for investors
+
+Return JSON:
+{{
+    "jargon_translation": {{"rsi": "text", "pe": "text"}},
+    "contradiction_resolution": "text",
                 "enhanced_interpretation": "text",
                 "quality_score": 0.0,
-                "strengths": ["list"],
-                "weaknesses": ["list"],
-                "improvements": ["list"],
-                "position_sizing_guidance": "text",
-                "market_factors": ["list"],
                 "confidence_level": "high/medium/low"
-            }}
-            """
+}}"""
             
-            response = self._call_ai_provider(prompt, "You are a risk management specialist who enhances mathematical calculations with market context and intelligent interpretation.")
+            response = self._call_ai_provider(prompt, "You are a financial educator who explains complex analysis in simple terms.")
             if not response:
                 # Fallback to basic interpretation if AI fails
                 return {
                     "enhanced_interpretation": self._interpret_risk_reward_ratio(ratio),
                     "quality_score": 0.5,
-                    "confidence_level": "medium"
+                    "confidence_level": "medium",
+                    "jargon_translation": {"rsi": f"RSI {rsi} - momentum indicator", "pe": f"P/E {pe_ratio} - valuation metric"},
+                    "contradiction_resolution": "No major contradictions detected"
                 }
             
             return self._parse_json_response(response, "Risk-Reward Enhancement")
@@ -246,45 +258,131 @@ class MultiStagePromptingService:
             return {
                 "enhanced_interpretation": self._interpret_risk_reward_ratio(ratio),
                 "quality_score": 0.5,
-                "confidence_level": "medium"
+                "confidence_level": "medium",
+                "jargon_translation": {"rsi": f"RSI {rsi} - momentum indicator", "pe": f"P/E {pe_ratio} - valuation metric"},
+                "contradiction_resolution": "No major contradictions detected"
             }
     
     def _calculate_resistance_level(self, technical: Dict[str, Any]) -> float:
-        """Calculate resistance level from technical data"""
-        # Try 52-week high first
-        high_52w = technical.get('high_52w', technical.get('fifty_two_week_high'))
-        if high_52w:
-            return float(high_52w)
+        """Calculate resistance level from technical data with proper validation"""
+        current_price = self._get_current_price(technical)
         
-        # Fallback to recent high
-        recent_high = technical.get('recent_high', technical.get('high'))
-        if recent_high:
-            return float(recent_high)
+        logger.info(f"🔍 RESISTANCE CALC: Current price = {current_price}")
+        logger.info(f"🔍 RESISTANCE CALC: Technical data keys = {list(technical.keys())}")
+        
+        # Get basic indicators from nested structure
+        basic_indicators = technical.get('basic_indicators', {})
+        logger.info(f"🔍 RESISTANCE CALC: basic_indicators = {basic_indicators}")
+        
+        # Try 52-week high first
+        high_52w = basic_indicators.get('high_52w', technical.get('high_52w', technical.get('fifty_two_week_high')))
+        logger.info(f"🔍 RESISTANCE CALC: high_52w = {high_52w}")
+        if high_52w and high_52w > current_price:
+            logger.info(f"✅ RESISTANCE CALC: Using high_52w = {high_52w}")
+            return float(high_52w)
+        else:
+            logger.info(f"❌ RESISTANCE CALC: high_52w rejected (value={high_52w}, condition={high_52w and high_52w > current_price})")
+        
+        # Try recent high
+        recent_high = basic_indicators.get('recent_high', technical.get('recent_high', technical.get('high')))
+        logger.info(f"🔍 RESISTANCE CALC: recent_high = {recent_high}")
+        if recent_high and recent_high > current_price:
+            # Additional validation: reject obviously corrupted values
+            # Resistance should be within reasonable range (not more than 200% above current price)
+            if recent_high > current_price * 2.0:
+                logger.warning(f"❌ RESISTANCE CALC: Rejecting corrupted recent_high: {recent_high} (more than 200% above current price {current_price})")
+            else:
+                logger.info(f"✅ RESISTANCE CALC: Using recent_high = {recent_high}")
+                return float(recent_high)
+        else:
+            logger.info(f"❌ RESISTANCE CALC: recent_high rejected (value={recent_high}, condition={recent_high and recent_high > current_price})")
+        
+        # Try VWAP as resistance
+        vwap = basic_indicators.get('vwap', technical.get('vwap'))
+        logger.info(f"🔍 RESISTANCE CALC: vwap = {vwap}")
+        if vwap and vwap > current_price:
+            logger.info(f"✅ RESISTANCE CALC: Using vwap = {vwap}")
+            return float(vwap)
+        else:
+            logger.info(f"❌ RESISTANCE CALC: vwap rejected (value={vwap}, condition={vwap and vwap > current_price})")
+        
+        # Try SMA 20 as resistance
+        sma_20 = basic_indicators.get('sma_20', technical.get('sma_20'))
+        logger.info(f"🔍 RESISTANCE CALC: sma_20 = {sma_20}")
+        if sma_20 and sma_20 > current_price:
+            logger.info(f"✅ RESISTANCE CALC: Using sma_20 = {sma_20}")
+            return float(sma_20)
+        else:
+            logger.info(f"❌ RESISTANCE CALC: sma_20 rejected (value={sma_20}, condition={sma_20 and sma_20 > current_price})")
         
         # Fallback to current price * 1.05 (5% upside assumption)
-        current_price = technical.get('current_price', technical.get('close', 100))
-        return float(current_price) * 1.05
+        resistance = current_price * 1.05
+        logger.warning(f"⚠️ RESISTANCE CALC: Using fallback calculation: {current_price} * 1.05 = {resistance}")
+        return resistance
     
     def _calculate_support_level(self, technical: Dict[str, Any]) -> float:
-        """Calculate support level from technical data"""
+        """Calculate support level from technical data with proper validation"""
+        current_price = self._get_current_price(technical)
+        
+        logger.info(f"🔍 SUPPORT CALC: Current price = {current_price}")
+        logger.info(f"🔍 SUPPORT CALC: Technical data keys = {list(technical.keys())}")
+        
+        # Get basic indicators from nested structure
+        basic_indicators = technical.get('basic_indicators', {})
+        logger.info(f"🔍 SUPPORT CALC: basic_indicators = {basic_indicators}")
+        
         # Try VWAP first
-        vwap = technical.get('vwap', technical.get('vwap_20'))
-        if vwap:
+        vwap = basic_indicators.get('vwap', technical.get('vwap', technical.get('vwap_20')))
+        logger.info(f"🔍 SUPPORT CALC: vwap = {vwap}")
+        if vwap and vwap < current_price:
+            logger.info(f"✅ SUPPORT CALC: Using vwap = {vwap}")
             return float(vwap)
+        else:
+            logger.info(f"❌ SUPPORT CALC: vwap rejected (value={vwap}, condition={vwap and vwap < current_price})")
         
         # Try 20-day SMA
-        sma_20 = technical.get('sma_20', technical.get('sma20'))
-        if sma_20:
+        sma_20 = basic_indicators.get('sma_20', technical.get('sma_20', technical.get('sma20')))
+        logger.info(f"🔍 SUPPORT CALC: sma_20 = {sma_20}")
+        if sma_20 and sma_20 < current_price:
+            logger.info(f"✅ SUPPORT CALC: Using sma_20 = {sma_20}")
             return float(sma_20)
+        else:
+            logger.info(f"❌ SUPPORT CALC: sma_20 rejected (value={sma_20}, condition={sma_20 and sma_20 < current_price})")
         
         # Try recent low
-        recent_low = technical.get('recent_low', technical.get('low'))
-        if recent_low:
-            return float(recent_low)
+        recent_low = basic_indicators.get('recent_low', technical.get('recent_low', technical.get('low')))
+        logger.info(f"🔍 SUPPORT CALC: recent_low = {recent_low}")
+        if recent_low and recent_low < current_price and recent_low > 0:
+            # Additional validation: reject obviously corrupted values
+            # Support should be within reasonable range (not more than 10% below current price)
+            if recent_low < current_price * 0.9:
+                logger.warning(f"❌ SUPPORT CALC: Rejecting corrupted recent_low: {recent_low} (more than 10% below current price {current_price})")
+            else:
+                logger.info(f"✅ SUPPORT CALC: Using recent_low = {recent_low}")
+                return float(recent_low)
+        else:
+            logger.info(f"❌ SUPPORT CALC: recent_low rejected (value={recent_low}, condition={recent_low and recent_low < current_price and recent_low > 0})")
         
         # Fallback to current price * 0.95 (5% downside assumption)
-        current_price = technical.get('current_price', technical.get('close', 100))
-        return float(current_price) * 0.95
+        support = current_price * 0.95
+        logger.warning(f"⚠️ SUPPORT CALC: Using fallback calculation: {current_price} * 0.95 = {support}")
+        return support
+    
+    def _get_current_price(self, technical: Dict[str, Any]) -> float:
+        """Extract current price from technical data with proper fallbacks"""
+        # Look for current_price in basic_indicators first, then fallback to direct technical data
+        basic_indicators = technical.get('basic_indicators', {})
+        
+        current_price = (basic_indicators.get('current_price') or 
+                       basic_indicators.get('close') or 
+                       technical.get('current_price') or 
+                       technical.get('close') or 0)
+        
+        if not current_price or current_price <= 0:
+            logger.error(f"❌ CRITICAL: Invalid current price: {current_price}")
+            return 100.0  # Fallback price
+        
+        return float(current_price)
     
     def _interpret_risk_reward_ratio(self, ratio: float) -> str:
         """Interpret risk-reward ratio"""
@@ -296,6 +394,169 @@ class MultiStagePromptingService:
             return "Acceptable with tight stops"
         else:
             return "Poor setup, avoid or wait for better entry"
+    
+    def _calculate_real_money_impacts(self, current_price: float, upside: float, 
+                                     downside: float, ratio: float) -> Dict[str, Any]:
+        """Calculate real money impacts for different investment amounts (no AI cost)"""
+        investment_amounts = [10000, 50000, 100000]  # ₹10K, ₹50K, ₹1L (reduced for cost)
+        
+        real_money_impacts = {}
+        for amount in investment_amounts:
+            shares = amount / current_price if current_price > 0 else 0
+            
+            # Calculate potential gains/losses
+            upside_pct = upside / current_price if current_price > 0 else 0
+            downside_pct = downside / current_price if current_price > 0 else 0
+            
+            potential_gain = amount * upside_pct
+            potential_loss = amount * downside_pct
+            
+            real_money_impacts[f"₹{amount:,}"] = {
+                "shares": f"{shares:.0f}",
+                "potential_gain": f"₹{potential_gain:,.0f}",
+                "potential_loss": f"₹{potential_loss:,.0f}",
+                "net_risk_reward": f"Risk ₹{potential_loss:,.0f} to make ₹{potential_gain:,.0f}",
+                "gain_pct": f"{upside_pct*100:.1f}%",
+                "loss_pct": f"{downside_pct*100:.1f}%"
+            }
+        
+        return real_money_impacts
+
+    def _create_plain_english_summary(self, ratio: float, real_money_impacts: Dict[str, Any]) -> Dict[str, str]:
+        """Create plain English summary (no AI cost)"""
+        if ratio >= 2.0:
+            risk_level = "Low Risk, High Reward"
+            advice = "Good setup - risk ₹1 to make ₹2+"
+        elif ratio >= 1.5:
+            risk_level = "Moderate Risk, Good Reward"
+            advice = "Decent setup - risk ₹1 to make ₹1.50"
+        elif ratio >= 1.0:
+            risk_level = "Balanced Risk-Reward"
+            advice = "Fair setup - risk ₹1 to make ₹1"
+        else:
+            risk_level = "High Risk, Low Reward"
+            advice = "Poor setup - avoid or wait for better entry"
+        
+        # Get sample for context
+        sample = list(real_money_impacts.keys())[0] if real_money_impacts else "₹10,000"
+        sample_data = real_money_impacts.get(sample, {})
+        
+        return {
+            "risk_level": risk_level,
+            "advice": advice,
+            "example": f"For {sample}: {sample_data.get('net_risk_reward', 'N/A')}",
+            "ratio_meaning": f"{ratio:.2f}:1 ratio"
+        }
+    
+    def _identify_top_drivers(self, symbol: str, technical: Dict[str, Any], 
+                             fundamentals: Dict[str, Any], enhanced_fundamentals: Dict[str, Any] = None) -> Dict[str, Any]:
+        """
+        COST-OPTIMIZED: Identify top 5 drivers from all stored data that influence decision-making
+        """
+        try:
+            # Extract key metrics only (reduce token usage)
+            key_metrics = {
+                "technical": {
+                    "rsi": technical.get('rsi_14', technical.get('rsi14')),
+                    "macd": technical.get('macd'),
+                    "sma_20": technical.get('sma_20'),
+                    "volume": technical.get('volume'),
+                    "atr": technical.get('atr_14'),
+                    "price_change_1d": technical.get('price_change_1d_pct', 0) * 100,
+                    "price_change_5d": technical.get('price_change_5d_pct', 0) * 100
+                },
+                "fundamental": {
+                    "pe_ratio": fundamentals.get('pe_ratio', fundamentals.get('trailing_pe')),
+                    "pb_ratio": fundamentals.get('pb_ratio'),
+                    "roe": fundamentals.get('roe'),
+                    "debt_equity": fundamentals.get('debt_equity_ratio'),
+                    "current_ratio": fundamentals.get('current_ratio'),
+                    "revenue_growth": fundamentals.get('revenue_growth_yoy'),
+                    "eps_growth": fundamentals.get('eps_growth_yoy')
+                },
+                "enhanced": {
+                    "operating_margin": enhanced_fundamentals.get('quality_metrics', {}).get('operating_margin') if enhanced_fundamentals else None,
+                    "free_cash_flow": enhanced_fundamentals.get('growth_metrics', {}).get('free_cash_flow_growth') if enhanced_fundamentals else None,
+                    "dividend_yield": enhanced_fundamentals.get('value_metrics', {}).get('dividend_yield') if enhanced_fundamentals else None
+                }
+            }
+            
+            # COST-OPTIMIZED PROMPT - Very focused
+            prompt = f"""TOP DRIVERS ANALYSIS: {symbol}
+
+Key Metrics: {json.dumps(key_metrics, indent=1)}
+
+Task: Identify top 5 drivers that most influence BUY/SELL decision.
+
+Return JSON:
+{{
+    "drivers": [
+        {{"metric": "RSI", "value": 47, "impact": "high/medium/low", "explanation": "why this matters"}},
+        {{"metric": "P/E", "value": 25, "impact": "high/medium/low", "explanation": "why this matters"}},
+        {{"metric": "Revenue Growth", "value": "15%", "impact": "high/medium/low", "explanation": "why this matters"}},
+        {{"metric": "MACD", "value": "bullish", "impact": "high/medium/low", "explanation": "why this matters"}},
+        {{"metric": "Debt/Equity", "value": 0.3, "impact": "high/medium/low", "explanation": "why this matters"}}
+    ],
+    "decision_influence": "Which 2-3 factors are most critical for this stock's decision",
+    "risk_factors": ["Top 2-3 risk factors to watch"],
+    "opportunity_factors": ["Top 2-3 opportunity factors"]
+}}"""
+            
+            response = self._call_ai_provider(prompt, "You are a financial analyst who identifies the most important metrics that drive investment decisions.")
+            if not response:
+                # Fallback to basic driver identification
+                return self._get_fallback_drivers(key_metrics)
+            
+            return self._parse_json_response(response, "Top Drivers Analysis")
+            
+        except Exception as e:
+            logger.error(f"❌ Top drivers analysis failed for {symbol}: {e}")
+            return self._get_fallback_drivers({})
+    
+    def _get_fallback_drivers(self, key_metrics: Dict[str, Any]) -> Dict[str, Any]:
+        """Fallback driver identification when AI fails"""
+        technical = key_metrics.get('technical', {})
+        fundamental = key_metrics.get('fundamental', {})
+        
+        # Simple rule-based driver identification
+        drivers = []
+        
+        # RSI driver
+        rsi = technical.get('rsi')
+        if rsi is not None:
+            if rsi > 70:
+                drivers.append({"metric": "RSI", "value": rsi, "impact": "high", "explanation": "Overbought - price may fall"})
+            elif rsi < 30:
+                drivers.append({"metric": "RSI", "value": rsi, "impact": "high", "explanation": "Oversold - potential bounce"})
+            else:
+                drivers.append({"metric": "RSI", "value": rsi, "impact": "medium", "explanation": "Neutral momentum"})
+        
+        # P/E driver
+        pe = fundamental.get('pe_ratio')
+        if pe is not None:
+            if pe < 15:
+                drivers.append({"metric": "P/E Ratio", "value": pe, "impact": "high", "explanation": "Undervalued - good buying opportunity"})
+            elif pe > 30:
+                drivers.append({"metric": "P/E Ratio", "value": pe, "impact": "high", "explanation": "Overvalued - expensive stock"})
+            else:
+                drivers.append({"metric": "P/E Ratio", "value": pe, "impact": "medium", "explanation": "Fairly valued"})
+        
+        # Revenue growth driver
+        revenue_growth = fundamental.get('revenue_growth')
+        if revenue_growth is not None:
+            if revenue_growth > 20:
+                drivers.append({"metric": "Revenue Growth", "value": f"{revenue_growth}%", "impact": "high", "explanation": "Strong growth - positive for stock"})
+            elif revenue_growth < 0:
+                drivers.append({"metric": "Revenue Growth", "value": f"{revenue_growth}%", "impact": "high", "explanation": "Declining revenue - negative signal"})
+            else:
+                drivers.append({"metric": "Revenue Growth", "value": f"{revenue_growth}%", "impact": "medium", "explanation": "Moderate growth"})
+        
+        return {
+            "drivers": drivers[:5],  # Limit to 5
+            "decision_influence": "Key metrics that drive investment decisions",
+            "risk_factors": ["High P/E ratio", "Declining revenue"],
+            "opportunity_factors": ["Low P/E ratio", "Strong revenue growth"]
+        }
         
     def analyze_stock(self, symbol: str, fundamentals: Dict[str, Any], 
                      technical: Dict[str, Any], enhanced_fundamentals: Dict[str, Any] = None) -> Dict[str, Any]:
@@ -322,6 +583,9 @@ class MultiStagePromptingService:
             simple_decision = self._stage2_simple_decision(symbol, simple_analysis, processed_data["fundamentals"], processed_data["technical"], processed_data["enhanced_fundamentals"], processed_data)
             if not simple_decision:
                 return {"error": "Stage 2 analysis failed"}
+            
+            # NEW: Identify top drivers from all stored data
+            top_drivers = self._identify_top_drivers(symbol, processed_data["technical"], processed_data["fundamentals"], processed_data["enhanced_fundamentals"])
             
             # Create compatibility layer for existing pipeline
             forensic_analysis = {
@@ -381,7 +645,9 @@ class MultiStagePromptingService:
                     "manageable_risks": risk_assessment.get("manageable_risks", [])
                 },
                 "simple_analysis": simple_analysis,
-                "simple_decision": simple_decision
+                "simple_decision": simple_decision,
+                # NEW: Top drivers analysis
+                "top_drivers": top_drivers
             }
             
             logger.info(f"✅ Multi-stage analysis completed for {symbol}: {final_decision['action']} (confidence: {final_decision['confidence']})")
@@ -418,84 +684,44 @@ class MultiStagePromptingService:
                 formatted_data = self._format_data_for_analysis(anonymized_data)
                 risk_reward = self._calculate_risk_reward_once(symbol, technical, fundamentals, enhanced_fundamentals)
             
-            prompt = f"""
-You are a stock analyst who identifies the most important factors in simple terms.
+            # COST-OPTIMIZED PROMPT - Focused on Setup/Catalyst/Confirmation only
+            prompt = f"""STOCK ANALYSIS: {symbol}
 
-=== STOCK DATA ===
-{formatted_data}
+Data: {formatted_data[:500]}...
 
-=== SIMPLE ANALYSIS TASK ===
+Risk-Reward: {risk_reward.get('risk_reward_ratio', 0):.2f}:1 (₹{risk_reward.get('upside', 0):.0f} upside vs ₹{risk_reward.get('downside', 0):.0f} downside)
+Real Money: {json.dumps(risk_reward.get('real_money_impacts', {}), indent=1)}
 
-Give me the 3 most important things about this stock:
+Tasks:
+1. SETUP: What's happening with price/technicals in simple terms
+2. CATALYST: Why this timing matters for investors  
+3. CONFIRMATION: What confirms this is real opportunity
 
-1. THE SETUP (What's happening?)
-   Describe the current technical and fundamental situation in 2-3 sentences, including:
-   - Key price levels being tested
-   - Current momentum direction  
-   - Why these levels matter for the trade
+Focus on the 3-factor analysis framework only.
 
-2. THE CATALYST (Why now?)
-   Identify recent developments that make this timing relevant:
-   - Recent news or events
-   - Earnings, guidance, or market developments
-   - Why this matters for the stock's direction
-
-3. THE CONFIRMATION (Is it real?)
-   Assess the strength of the setup:
-   - Volume, momentum, or other confirmation signals
-   - Why this confirms (or contradicts) the setup
-   - What would break this setup
-
-=== RISK-REWARD CALCULATION (PRE-CALCULATED) ===
-- Current Price: {risk_reward.get('current_price', 'N/A')}
-- Resistance Level: {risk_reward.get('resistance_level', 'N/A')}
-- Support Level: {risk_reward.get('support_level', 'N/A')}
-- Upside: {risk_reward.get('upside', 'N/A')} ({risk_reward.get('upside_percentage', 'N/A')}%)
-- Downside: {risk_reward.get('downside', 'N/A')} ({risk_reward.get('downside_percentage', 'N/A')}%)
-- Risk-Reward Ratio: {risk_reward.get('risk_reward_ratio', 'N/A')}:1
-- AI-Enhanced Interpretation: {risk_reward.get('ratio_interpretation', 'N/A')}
-
-=== ADDITIONAL CONTEXT ===
-- Consider this stock's sector and industry position in your analysis
-- Reference the risk-reward ratio in your assessment
-- Explain your confidence level and what factors support it
-
-Return as JSON:
+Return JSON(Example):
 {{
-    "the_setup": "text describing current situation and key levels",
-    "the_catalyst": "text describing recent news or events",
-    "the_confirmation": "text describing volume/momentum confirmation",
+    "the_setup": "text",
+    "the_catalyst": "text", 
+    "the_confirmation": "text",
     "overall_signal": "strong/weak/neutral",
     "confidence": 0.0,
-    "confidence_reasoning": "explanation of confidence factors",
-    "key_levels": {{
-        "support": {risk_reward.get('support_level', 0.0)},
-        "resistance": {risk_reward.get('resistance_level', 0.0)},
-        "current_price": {risk_reward.get('current_price', 0.0)}
-    }},
-    "risk_reward": {{
-        "ratio": {risk_reward.get('risk_reward_ratio', 0.0)},
-        "interpretation": "{risk_reward.get('ratio_interpretation', 'N/A')}",
-        "upside": {risk_reward.get('upside', 0.0)},
-        "downside": {risk_reward.get('downside', 0.0)}
-    }},
     "fundamental_score": 0.0,
     "technical_score": 0.0,
-    "dominant_factor": "technical",
     "overall_signal_strength": 0.0,
     "primary_driver": "momentum"
-}}
-"""
+}}"""
             
             response = self._call_ai_provider(prompt, "You are a stock analyst who identifies the most important factors in simple terms.")
             if not response:
                 return None
-                
-            return self._parse_json_response(response, "Stage 1 Simple Analysis")
+            result = self._parse_json_response(response, "Stage 1 Simple Analysis")
+            result["risk_reward"] = risk_reward
+            return result
             
         except Exception as e:
             logger.error(f"Stage 1 analysis failed for {symbol}: {e}")
-            return None
+            return {"error": str(e)}
     
     def _stage2_simple_decision(self, symbol: str, simple_analysis: Dict[str, Any], 
                                fundamentals: Dict[str, Any], technical: Dict[str, Any], 
@@ -512,55 +738,26 @@ Return as JSON:
             overall_signal = simple_analysis.get("overall_signal", "neutral")
             confidence = simple_analysis.get("confidence", 0.0)
             
-            prompt = f"""
-            DECISION ANALYSIS - Should we buy this stock?
-            
-            === SIMPLE ANALYSIS RESULT ===
-            The Setup: {the_setup}
-            The Catalyst: {the_catalyst}
-            The Confirmation: {the_confirmation}
-            Overall Signal: {overall_signal}
-            Confidence: {confidence}
-            
-            === DECISION TASK ===
-            
-            Based on the setup, catalyst, confirmation, AND the risk-reward ratio, make a clear decision:
-            
-            DECISION: [BUY/WATCH/AVOID]
-            CONFIDENCE: [0.0-1.0]
-            
-            REASONING (3 bullets max):
-            - [Why this decision makes sense based on setup, catalyst, and confirmation]
-            - [What could go wrong and how to manage it]
-            - [What success looks like and key milestones]
-            
-            EXPECTED OUTCOME:
-            - [What we expect to happen based on the analysis]
-            - [Timeline for this to play out]
-            - [How much we could make/lose with risk-reward context]
-            
-            CONFIDENCE REASONING:
-            - [Explain your confidence level and what factors support it]
-            - [Consider sector context and industry position]
-            
-            Return as JSON:
+            # COST-OPTIMIZED PROMPT - Much shorter
+            prompt = f"""DECISION: {symbol}
+
+Setup: {the_setup}
+Catalyst: {the_catalyst}  
+Confirmation: {the_confirmation}
+Signal: {overall_signal} (confidence: {confidence})
+
+Make clear decision: BUY/WATCH/AVOID
+
+Return JSON:
             {{
                 "decision": "BUY/WATCH/AVOID",
                 "confidence": 0.0,
-                "confidence_reasoning": "explanation of confidence factors and sector context",
                 "reasoning": ["bullet1", "bullet2", "bullet3"],
-                "expected_outcome": "text",
-                "timeline": "text",
-                "potential_gain": "text",
-                "potential_loss": "text",
-                "position_size": "text",
+    "position_size": "50%",
                 "stop_loss": 0.0,
                 "target_price": 0.0,
-                "risk_level": "low/moderate/high",
-                "deal_breakers": ["list"],
-                "manageable_risks": ["list"]
-            }}
-            """
+    "risk_level": "low/moderate/high"
+}}"""
             
             response = self._call_ai_provider(prompt, "You are a decision maker who makes clear buy/watch/avoid decisions.")
             if not response:

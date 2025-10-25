@@ -196,8 +196,21 @@ def calculate_technical_snapshot(ohlcv_data: pd.DataFrame) -> Dict[str, Optional
         # Breakout check
         breakout = is_breakout(close, high, 20)
         
+        # Calculate additional indicators for support/resistance
+        # 52-week high/low (approximate using 252 trading days = 1 year)
+        high_52w = high.tail(252).max() if len(high) >= 252 else high.max()
+        low_52w = low.tail(252).min() if len(low) >= 252 else low.min()
+        
+        # Recent high/low (last 20 days)
+        recent_high = high.tail(20).max()
+        recent_low = low.tail(20).min()
+        
+        # VWAP approximation (Volume Weighted Average Price)
+        vwap = (close * volume).tail(20).sum() / volume.tail(20).sum() if volume.tail(20).sum() > 0 else current_close
+        
         return {
             "close": float(current_close),
+            "current_price": float(current_close),  # Add current_price for compatibility
             "sma20": float(current_sma20) if current_sma20 is not None else None,
             "sma50": float(current_sma50) if current_sma50 is not None else None,
             "ema12": float(current_ema12) if current_ema12 is not None else None,
@@ -219,7 +232,13 @@ def calculate_technical_snapshot(ohlcv_data: pd.DataFrame) -> Dict[str, Optional
             "stoch_k": float(current_stoch_k) if current_stoch_k is not None else None,
             "stoch_d": float(current_stoch_d) if current_stoch_d is not None else None,
             "williams_r": float(current_williams_r) if current_williams_r is not None else None,
-            "obv": float(current_obv) if current_obv is not None else None
+            "obv": float(current_obv) if current_obv is not None else None,
+            # Support/Resistance indicators
+            "high_52w": float(high_52w),
+            "low_52w": float(low_52w),
+            "recent_high": float(recent_high),
+            "recent_low": float(recent_low),
+            "vwap": float(vwap)
         }
         
     except Exception as e:

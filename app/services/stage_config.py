@@ -13,31 +13,15 @@ class StageConfigService:
     def _initialize_stage_mappings(self) -> Dict[str, Dict[str, StageMapping]]:
         """Initialize stage mappings for different analysis types"""
         
-        # Enhanced analysis stages (new 8-stage structure with parallel AI)
+        # Enhanced analysis stages (simplified 4-stage structure - data collection and scoring integrated into simple_analysis)
         enhanced_stages = {
-            "data_collection_and_analysis": StageMapping(
-                stage_name="data_collection_and_analysis",
-                display_name="Data Collection and Analysis",
-                description="Fetching OHLCV data, fundamentals, and performing enhanced technical and fundamental analysis",
-                estimated_duration=25,
-                dependencies=[],
-                order=1
-            ),
-            "technical_and_combined_scoring": StageMapping(
-                stage_name="technical_and_combined_scoring",
-                display_name="Technical and Combined Scoring",
-                description="Calculating technical scores and combined scoring",
-                estimated_duration=5,
-                dependencies=["data_collection_and_analysis"],
-                order=2
-            ),
             "simple_analysis": StageMapping(
                 stage_name="simple_analysis",
                 display_name="Simple Analysis",
-                description="3-factor analysis: Setup, Catalyst, Confirmation with AI-enhanced risk-reward",
-                estimated_duration=5,
-                dependencies=["technical_and_combined_scoring"],
-                order=3
+                description="3-factor analysis: Setup, Catalyst, Confirmation with AI-enhanced risk-reward. Includes data collection and technical scoring.",
+                estimated_duration=30,  # Increased to include data collection and scoring
+                dependencies=[],  # No dependencies - now stage 1
+                order=1
             ),
             "simple_decision": StageMapping(
                 stage_name="simple_decision",
@@ -45,7 +29,7 @@ class StageConfigService:
                 description="Clear BUY/WATCH/AVOID decision based on simple analysis",
                 estimated_duration=5,
                 dependencies=["simple_analysis"],
-                order=4
+                order=2
             ),
             "verdict_synthesis": StageMapping(
                 stage_name="verdict_synthesis",
@@ -53,7 +37,7 @@ class StageConfigService:
                 description="Combining results from simple analysis and decision stages",
                 estimated_duration=2,
                 dependencies=["simple_analysis", "simple_decision"],
-                order=5
+                order=3
             ),
             "final_scoring": StageMapping(
                 stage_name="final_scoring",
@@ -61,7 +45,7 @@ class StageConfigService:
                 description="Final score calculation and recommendation generation",
                 estimated_duration=3,
                 dependencies=["verdict_synthesis"],
-                order=6
+                order=4
             )
         }
         

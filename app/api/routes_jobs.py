@@ -16,6 +16,7 @@ from app.services.job_service import job_service
 from app.services.stage_config import stage_config_service
 from app.services.stage_processor import stage_processor
 from app.config import settings
+from app.analysis.utilities.data_formatters import format_optimized_analysis_response
 
 logger = logging.getLogger(__name__)
 
@@ -453,9 +454,9 @@ async def get_analysis_by_symbol(
         logger.info(f"✅ ANALYSIS FOUND: Retrieved analysis for {symbol}")
         logger.info(f"📊 ANALYSIS DATA: Analysis has {len(analysis.get('stages', {}))} stages")
         
-        # Optimize response by removing duplications and null values
-        optimized_analysis = _optimize_analysis_response(analysis)
-        logger.info(f"🔧 RESPONSE OPTIMIZATION: Reduced response size by removing duplications")
+        # Apply enhanced optimization with better data grouping and hidden internal calculations
+        optimized_analysis = format_optimized_analysis_response(analysis)
+        logger.info(f"🔧 ENHANCED RESPONSE OPTIMIZATION: Applied data grouping and hidden internal calculations")
         
         response_data = {
             "symbol": symbol,

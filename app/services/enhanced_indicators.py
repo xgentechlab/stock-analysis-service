@@ -304,6 +304,7 @@ class EnhancedTechnicalFramework:
         Returns enhanced technical analysis results
         """
         try:
+            logger.info(f"🔍 ENHANCED_INDICATORS: Starting analyze_symbol for {symbol}")
             # Fetch multi-timeframe data
             mtf_data = self.mtf_data.fetch_multi_timeframe_data(symbol, days_back)
             
@@ -312,6 +313,7 @@ class EnhancedTechnicalFramework:
                 logger.warning(f"No daily data available for {symbol}")
                 return {}
             analysis = {}
+            logger.info(f"🔍 ENHANCED_INDICATORS: Got daily_data with {len(daily_data)} rows for {symbol}")
             
             # Basic technical indicators
             try:
@@ -343,6 +345,8 @@ class EnhancedTechnicalFramework:
             except Exception as e:
                 logger.error(f"Error generating technical signals for {symbol}: {e}")
             
+            logger.info(f"🔍 ENHANCED_INDICATORS: Final analysis keys for {symbol}: {list(analysis.keys())}")
+            logger.info(f"🔍 ENHANCED_INDICATORS: Final analysis current_price for {symbol}: {analysis.get('current_price')}")
             return analysis
             
         except Exception as e:
@@ -415,15 +419,21 @@ class EnhancedTechnicalFramework:
         # ATR
         atr = self._calculate_atr(high, low, close, 14)
         
-        return {
+        current_price = close.iloc[-1]
+        logger.info(f"🔍 ENHANCED_INDICATORS: Calculated current_price = {current_price} for close.iloc[-1]")
+        
+        result = {
             "sma_20": sma_20.iloc[-1] if not pd.isna(sma_20.iloc[-1]) else None,
             "sma_50": sma_50.iloc[-1] if not pd.isna(sma_50.iloc[-1]) else None,
             "ema_12": ema_12.iloc[-1] if not pd.isna(ema_12.iloc[-1]) else None,
             "ema_26": ema_26.iloc[-1] if not pd.isna(ema_26.iloc[-1]) else None,
             "rsi_14": rsi.iloc[-1] if not pd.isna(rsi.iloc[-1]) else None,
             "atr_14": atr.iloc[-1] if not pd.isna(atr.iloc[-1]) else None,
-            "current_price": close.iloc[-1]
+            "current_price": current_price
         }
+        
+        logger.info(f"🔍 ENHANCED_INDICATORS: Returning basic_indicators with current_price = {result.get('current_price')}")
+        return result
     
     def _calculate_momentum_analysis(self, data: pd.DataFrame) -> Dict[str, Any]:
         """Calculate advanced momentum indicators"""

@@ -273,26 +273,46 @@ class StageProcessor:
             "started_at": datetime.now(timezone.utc).isoformat()
         }
         
-        # Add stage-specific initial data for 4-stage pipeline
+        # Add stage-specific initial data
         if stage_name == "simple_analysis":
             initial_data.update({
                 "message": f"Performing comprehensive analysis for {symbol} (includes data collection and scoring)",
-                "steps": ["Fetching OHLCV data", "Getting fundamentals", "Enhanced technical analysis", "Enhanced fundamental analysis", "Technical scoring", "Combined scoring", "AI analysis"]
+                "steps": ["Fetching OHLCV data", "Getting fundamentals", "Enhanced technical analysis", "Enhanced fundamental analysis", "Technical scoring", "Combined scoring"]
             })
         elif stage_name == "simple_decision":
             initial_data.update({
                 "message": f"Making trading decision for {symbol}",
-                "steps": ["Analyzing setup", "Evaluating catalyst", "Checking confirmation", "Risk assessment", "Position sizing", "BUY/WATCH/AVOID decision"]
+                "steps": ["Technical scoring", "Combined score calculation"]
+            })
+        elif stage_name == "forensic_analysis":
+            initial_data.update({
+                "message": f"Performing forensic analysis for {symbol}",
+                "steps": ["Financial analysis", "Risk assessment", "Signal strength calculation"]
+            })
+        elif stage_name == "module_selection":
+            initial_data.update({
+                "message": f"Selecting analysis module for {symbol}",
+                "steps": ["Momentum analysis", "Value analysis", "Balanced analysis"]
+            })
+        elif stage_name == "risk_assessment":
+            initial_data.update({
+                "message": f"Assessing risks for {symbol}",
+                "steps": ["Risk identification", "Position sizing", "Risk mitigation"]
+            })
+        elif stage_name == "final_decision":
+            initial_data.update({
+                "message": f"Making final decision for {symbol}",
+                "steps": ["Decision analysis", "Confidence calculation", "Position sizing"]
             })
         elif stage_name == "verdict_synthesis":
             initial_data.update({
-                "message": f"Synthesizing analysis results for {symbol}",
-                "steps": ["Combining analysis results", "Integrating decision factors", "Finalizing recommendation", "Generating rationale"]
+                "message": f"Synthesizing AI analysis results for {symbol}",
+                "steps": ["Combining forensic analysis", "Integrating module selection", "Incorporating risk assessment", "Finalizing decision"]
             })
         elif stage_name == "final_scoring":
             initial_data.update({
                 "message": f"Calculating final score for {symbol}",
-                "steps": ["Score blending", "Threshold evaluation", "Final recommendation", "Routing to recommendations/watchlist"]
+                "steps": ["Score blending", "Threshold evaluation", "Final recommendation"]
             })
         
         return initial_data
@@ -371,197 +391,7 @@ class StageProcessor:
             
             return False, None, error_msg
     
-    def _execute_data_collection(self, symbol: str, analysis_type: AnalysisType) -> Dict[str, Any]:
-        """Execute data collection stage"""
-        if analysis_type == AnalysisType.ENHANCED:
-            stock_info = stocks_service.get_enhanced_stock_info(symbol)
-        else:
-            stock_info = stocks_service.get_stock_info(symbol)
-        
-        if not stock_info or stock_info.get('ohlcv') is None:
-            raise ValueError(f"No data found for symbol {symbol}")
-        
-        ohlcv = stock_info.get('ohlcv')
-        if hasattr(ohlcv, 'empty') and ohlcv.empty:
-            raise ValueError(f"No data found for symbol {symbol}")
-        elif ohlcv is None:
-            raise ValueError(f"No data found for symbol {symbol}")
-        
-        ohlcv_days = len(ohlcv) if ohlcv is not None and not (hasattr(ohlcv, 'empty') and ohlcv.empty) else 0
-        
-        # Safely check if enhanced data is available
-        enhanced_technical = stock_info.get('enhanced_technical')
-        enhanced_fundamentals = stock_info.get('enhanced_fundamentals')
-        
-        # Check if enhanced data exists and is not empty
-        enhanced_technical_available = (
-            enhanced_technical is not None and 
-            not (hasattr(enhanced_technical, 'empty') and enhanced_technical.empty)
-        )
-        enhanced_fundamentals_available = (
-            enhanced_fundamentals is not None and 
-            not (hasattr(enhanced_fundamentals, 'empty') and enhanced_fundamentals.empty)
-        )
-        
-        # Convert DataFrame to dict for Firestore storage
-        raw_data = stock_info.copy()
-        if 'ohlcv' in raw_data and hasattr(raw_data['ohlcv'], 'to_dict'):
-            raw_data['ohlcv'] = raw_data['ohlcv'].to_dict('records')
-        
-        return {
-            "ohlcv_days": ohlcv_days,
-            "current_price": stock_info.get('current_price'),
-            "enhanced_technical_available": enhanced_technical_available,
-            "enhanced_fundamentals_available": enhanced_fundamentals_available,
-            "data_quality": "good" if ohlcv_days >= 30 else "insufficient",
-            "summary": {
-                "price_range": {
-                    "high": float(stock_info['ohlcv']['High'].max()) if 'ohlcv' in stock_info and not stock_info['ohlcv'].empty else None,
-                    "low": float(stock_info['ohlcv']['Low'].min()) if 'ohlcv' in stock_info and not stock_info['ohlcv'].empty else None,
-                    "current": stock_info.get('current_price')
-                },
-                "volume_avg": float(stock_info['ohlcv']['Volume'].mean()) if 'ohlcv' in stock_info and not stock_info['ohlcv'].empty else None,
-                "data_sources": ["yfinance", "enhanced_technical", "enhanced_fundamentals"]
-            },
-            "raw_data": raw_data  # Store for subsequent stages
-        }
-    
-    def _execute_enhanced_technical_analysis(self, symbol: str, previous_results: Dict[str, Any]) -> Dict[str, Any]:
-        """Execute enhanced technical analysis stage"""
-        data_collection = previous_results.get("data_collection", {})
-        raw_data = data_collection.get("raw_data", {})
-        
-        enhanced_technical_data = raw_data.get('enhanced_technical', {})
-        
-        # Check if enhanced_technical_data is empty or None
-        if enhanced_technical_data is None or (hasattr(enhanced_technical_data, 'empty') and enhanced_technical_data.empty):
-            # Calculate if not already available
-            logger.info(f"🔍 ENHANCED_TECHNICAL: No cached data, calling analyze_symbol for {symbol}")
-            enhanced_technical_data = enhanced_technical.analyze_symbol(symbol, days_back=30)
-            logger.info(f"🔍 ENHANCED_TECHNICAL: analyze_symbol returned keys: {list(enhanced_technical_data.keys()) if enhanced_technical_data else 'None'}")
-        else:
-            logger.info(f"🔍 ENHANCED_TECHNICAL: Using cached data for {symbol}")
-        
-        # Format technical indicators for better UI display
-        logger.info(f"🔍 ENHANCED_TECHNICAL: enhanced_technical_data keys: {list(enhanced_technical_data.keys()) if enhanced_technical_data else 'None'}")
-        logger.info(f"🔍 ENHANCED_TECHNICAL: enhanced_technical_data.get('current_price') = {enhanced_technical_data.get('current_price') if enhanced_technical_data else 'None'}")
-        formatted_indicators = self._format_technical_indicators(enhanced_technical_data)
-        
-        return {
-            "indicators_available": len(enhanced_technical_data) if enhanced_technical_data else 0,
-            "technical_indicators": formatted_indicators,
-            "status": "success" if enhanced_technical_data else "failed",
-            "summary": {
-                "momentum_indicators": len([k for k in formatted_indicators.keys() if 'momentum' in k.lower()]),
-                "volume_indicators": len([k for k in formatted_indicators.keys() if 'volume' in k.lower()]),
-                "trend_indicators": len([k for k in formatted_indicators.keys() if 'trend' in k.lower() or 'ma' in k.lower()]),
-                "oscillator_indicators": len([k for k in formatted_indicators.keys() if 'rsi' in k.lower() or 'stoch' in k.lower()])
-            }
-        }
-    
-    def _execute_enhanced_technical_scoring(self, symbol: str, previous_results: Dict[str, Any]) -> Dict[str, Any]:
-        """Execute enhanced technical scoring stage"""
-        technical_analysis = previous_results.get("enhanced_technical_analysis", {})
-        technical_indicators = technical_analysis.get("technical_indicators", {})
-        
-        if not technical_indicators:
-            raise ValueError("Technical indicators not available for scoring")
-        
-        # Calculate technical score
-        technical_score_data = enhanced_scoring.calculate_enhanced_score(technical_indicators)
-        
-        return technical_score_data
-    
-    def _execute_enhanced_fundamental_analysis(self, symbol: str, previous_results: Dict[str, Any]) -> Dict[str, Any]:
-        """Execute enhanced fundamental analysis stage"""
-        data_collection = previous_results.get("data_collection", {})
-        raw_data = data_collection.get("raw_data", {})
-        
-        enhanced_fundamentals = raw_data.get('enhanced_fundamentals', {})
-        fundamental_score_data = raw_data.get('fundamental_score', {})
-        
-        # Check if enhanced_fundamentals is empty or None
-        if enhanced_fundamentals is None or (hasattr(enhanced_fundamentals, 'empty') and enhanced_fundamentals.empty):
-            # Calculate if not already available
-            enhanced_fundamentals = enhanced_fundamental_analysis.fetch_enhanced_fundamentals(symbol)
-        
-        # Check if fundamental_score_data is empty and enhanced_fundamentals exists
-        if not fundamental_score_data and enhanced_fundamentals is not None and not (hasattr(enhanced_fundamentals, 'empty') and enhanced_fundamentals.empty):
-            from app.services.fundamental_scoring import fundamental_scoring
-            fundamental_score_data = fundamental_scoring.calculate_fundamental_score(enhanced_fundamentals)
-        
-        return {
-            "fundamental_score": fundamental_score_data,
-            "enhanced_fundamentals": enhanced_fundamentals,
-            "status": "success" if enhanced_fundamentals else "failed"
-        }
-    
-    def _execute_combined_scoring(self, symbol: str, previous_results: Dict[str, Any]) -> Dict[str, Any]:
-        """Execute combined scoring stage"""
-        technical_scoring = previous_results.get("enhanced_technical_scoring", {})
-        fundamental_analysis = previous_results.get("enhanced_fundamental_analysis", {})
-        
-        technical_score = technical_scoring.get("technical_score", 0.0)
-        fundamental_score = fundamental_analysis.get("fundamental_score", {}).get("final_score", 0.0)
-        
-        # Calculate combined score (60% technical, 40% fundamental)
-        combined_score = 0.6 * technical_score + 0.4 * fundamental_score
-        
-        return {
-            "technical_score": technical_score,
-            "fundamental_score": fundamental_score,
-            "combined_score": combined_score,
-            "scoring_weights": {
-                "technical": 0.6,
-                "fundamental": 0.4
-            }
-        }
-    
-    def _execute_enhanced_filtering(self, symbol: str, previous_results: Dict[str, Any]) -> Dict[str, Any]:
-        """Execute enhanced filtering stage"""
-        combined_scoring = previous_results.get("combined_scoring", {})
-        fundamental_analysis = previous_results.get("enhanced_fundamental_analysis", {})
-        
-        combined_score = combined_scoring.get("combined_score", 0.0)
-        fundamental_score_data = fundamental_analysis.get("fundamental_score", {})
-        
-        # Apply enhanced filters
-        fundamental_ok = fundamental_score_data.get("final_score", 0.0) >= 0.5
-        passes_enhanced_filters = combined_score >= 0.5 and fundamental_ok
-        
-        return {
-            "fundamental_ok": fundamental_ok,
-            "passes_enhanced_filters": passes_enhanced_filters,
-            "min_confidence": 0.6,
-            "require_divergence": False,
-            "require_mtf_alignment": True
-        }
-    
-    def _execute_multi_stage_ai_analysis(self, symbol: str, previous_results: Dict[str, Any]) -> Dict[str, Any]:
-        """Execute multi-stage AI analysis stage"""
-        data_collection = previous_results.get("data_collection", {})
-        technical_analysis = previous_results.get("enhanced_technical_analysis", {})
-        fundamental_analysis = previous_results.get("enhanced_fundamental_analysis", {})
-        
-        raw_data = data_collection.get("raw_data", {})
-        technical_indicators = technical_analysis.get("technical_indicators", {})
-        enhanced_fundamentals = fundamental_analysis.get("enhanced_fundamentals", {})
-        
-        if not technical_indicators or not raw_data.get('fundamentals'):
-            raise ValueError("Required data not available for AI analysis")
-        
-        # Run multi-stage AI analysis
-        multi_stage_analysis = multi_stage_prompting_service.analyze_stock(
-            symbol, 
-            raw_data.get('fundamentals', {}), 
-            technical_indicators, 
-            enhanced_fundamentals
-        )
-        
-        if not multi_stage_analysis or multi_stage_analysis.get("error"):
-            raise ValueError(f"Multi-stage AI analysis failed: {multi_stage_analysis.get('error', 'Unknown error')}")
-        
-        return multi_stage_analysis
+
     
     def _execute_final_scoring(self, symbol: str, previous_results: Dict[str, Any]) -> Dict[str, Any]:
         """Execute final scoring stage"""
@@ -611,23 +441,13 @@ class StageProcessor:
     
     def _format_technical_indicators(self, technical_data: Dict[str, Any]) -> Dict[str, Any]:
         """Format technical indicators for storage"""
-        logger.info(f"🔍 STAGE_PROCESSOR: Input technical_data keys: {list(technical_data.keys())}")
-        logger.info(f"🔍 STAGE_PROCESSOR: technical_data.get('current_price') = {technical_data.get('current_price')}")
-        logger.info(f"🔍 STAGE_PROCESSOR: technical_data.get('close') = {technical_data.get('close')}")
-        
-        basic_indicators = {
-            "sma_20": technical_data.get("sma_20"),
-            "sma_50": technical_data.get("sma_50"),
-            "rsi_14": technical_data.get("rsi_14"),
-            "atr_14": technical_data.get("atr_14"),
-            "current_price": technical_data.get("current_price"),
-            "close": technical_data.get("close")
-        }
-        
-        logger.info(f"🔍 STAGE_PROCESSOR: Formatted basic_indicators = {basic_indicators}")
-        
-        result = {
-            "basic_indicators": basic_indicators,
+        return {
+            "basic_indicators": {
+                "sma_20": technical_data.get("sma_20"),
+                "sma_50": technical_data.get("sma_50"),
+                "rsi_14": technical_data.get("rsi_14"),
+                "atr_14": technical_data.get("atr_14")
+            },
             "momentum_indicators": {
                 "macd": technical_data.get("macd"),
                 "macd_signal": technical_data.get("macd_signal"),
@@ -658,9 +478,6 @@ class StageProcessor:
                 "1wk_trend": technical_data.get("1wk_trend")
             }
         }
-        
-        logger.info(f"🔍 STAGE_PROCESSOR: Final result basic_indicators.current_price = {result['basic_indicators'].get('current_price')}")
-        return result
     
     def _is_critical_stage(self, stage_name: str) -> bool:
         """Check if a stage is critical for the analysis"""
@@ -672,65 +489,46 @@ class StageProcessor:
     
     def _execute_simple_analysis(self, symbol: str, previous_results: Dict[str, Any]) -> Dict[str, Any]:
         """Execute simple analysis stage (replaces forensic_analysis)"""
-        # OPTIMIZED: Fetch database data directly - simpler and more reliable
-        db_data = self._fetch_comprehensive_db_data(symbol)
-        
-        if not db_data:
-            raise ValueError(f"No database data found for {symbol}")
+        # FIX: Get database data from job analysis instead of previous_results
+        db_data = self._get_database_data_from_job(symbol, previous_results)
         
         # Extract required inputs from database data
-        fundamentals = db_data.get("fundamentals", {})
-        technical = db_data.get("technical", {})
+        fundamental_score = db_data.get("fundamental_score", {})
+        raw_technical_data = db_data.get("raw_technical_data", {})
         enhanced_fundamentals = db_data.get("enhanced_fundamentals", {})
         
         # Call new 2-stage method for simple analysis
         simple_analysis_result = multi_stage_prompting_service._stage1_simple_analysis(
             symbol, 
-            fundamentals,
-            technical,
+            fundamental_score,
+            raw_technical_data,
             enhanced_fundamentals
         )
         
         if not simple_analysis_result:
             raise ValueError("Simple analysis failed")
         
-        # ENHANCED: Add top drivers analysis to simple_analysis stage
-        logger.info(f"🔍 Adding top drivers analysis to simple_analysis for {symbol}")
-        top_drivers = multi_stage_prompting_service._identify_top_drivers(
-            symbol, 
-            technical, 
-            fundamentals, 
-            enhanced_fundamentals
-        )
-        
-        # Add top drivers to the result
-        simple_analysis_result["top_drivers"] = top_drivers
-        logger.info(f"✅ Top drivers analysis completed for {symbol}")
-        
         return simple_analysis_result
     
     def _execute_simple_decision(self, symbol: str, previous_results: Dict[str, Any]) -> Dict[str, Any]:
         """Execute simple decision stage (replaces module_selection, risk_assessment, final_decision)"""
-        # OPTIMIZED: Fetch database data directly - simpler and more reliable
-        db_data = self._fetch_comprehensive_db_data(symbol)
-        
-        if not db_data:
-            raise ValueError(f"No database data found for {symbol}")
+        # FIX: Get database data from job analysis instead of previous_results
+        db_data = self._get_database_data_from_job(symbol, previous_results)
         
         # Get simple analysis result from previous stage
         simple_analysis = previous_results.get("simple_analysis", {})
         
         # Extract required inputs from database data
-        fundamentals = db_data.get("fundamentals", {})
-        technical = db_data.get("technical", {})
+        fundamental_score = db_data.get("fundamental_score", {})
+        raw_technical_data = db_data.get("raw_technical_data", {})
         enhanced_fundamentals = db_data.get("enhanced_fundamentals", {})
         
         # Call new 2-stage method for simple decision
         simple_decision_result = multi_stage_prompting_service._stage2_simple_decision(
             symbol,
             simple_analysis,
-            fundamentals,
-            technical,
+            fundamental_score,
+            raw_technical_data,
             enhanced_fundamentals
         )
         
@@ -818,35 +616,6 @@ class StageProcessor:
             "final_recommendation": final_recommendation
         }
     
-    def _extract_basic_fundamentals(self, hot_analysis: Dict[str, Any]) -> Dict[str, Any]:
-        """Extract basic fundamental data from hot analysis for AI processing"""
-        try:
-            enhanced_fundamentals = hot_analysis.get("enhanced_fundamentals", {})
-            
-            # Extract basic metrics from enhanced fundamentals
-            basic_fundamentals = {
-                "pe_ratio": enhanced_fundamentals.get("value_metrics", {}).get("pe_ratio"),
-                "pb_ratio": enhanced_fundamentals.get("value_metrics", {}).get("pb_ratio"),
-                "roe": enhanced_fundamentals.get("quality_metrics", {}).get("roe"),
-                "eps_ttm": enhanced_fundamentals.get("value_metrics", {}).get("eps_ttm"),
-                "market_cap_cr": enhanced_fundamentals.get("value_metrics", {}).get("market_cap_cr"),
-                "sector": enhanced_fundamentals.get("momentum_metrics", {}).get("sector"),
-                "industry": enhanced_fundamentals.get("momentum_metrics", {}).get("industry"),
-                "current_price": hot_analysis.get("current_price"),  # From hot analysis
-                "dividend_yield": enhanced_fundamentals.get("value_metrics", {}).get("dividend_yield"),
-                "debt_equity_ratio": enhanced_fundamentals.get("quality_metrics", {}).get("debt_equity_ratio"),
-                "current_ratio": enhanced_fundamentals.get("quality_metrics", {}).get("current_ratio"),
-                "revenue_growth_yoy": enhanced_fundamentals.get("growth_metrics", {}).get("revenue_growth_yoy"),
-                "eps_growth_yoy": enhanced_fundamentals.get("growth_metrics", {}).get("eps_growth_yoy")
-            }
-            
-            # Remove None values
-            return {k: v for k, v in basic_fundamentals.items() if v is not None}
-            
-        except Exception as e:
-            logger.error(f"Error extracting basic fundamentals: {e}")
-            return {}
-
     def _fetch_comprehensive_db_data(self, symbol: str) -> Dict[str, Any]:
         """Fetch all required database data for complete analysis pipeline"""
         try:
@@ -861,6 +630,40 @@ class StageProcessor:
                 logger.warning(f"No database data found for {symbol}")
                 return {}
             
+            # Stage 1 Data: Data Collection and Analysis
+            stage1_data = {
+                "ohlcv_days": 30,  # Default value since we removed timeframes data
+                "current_price": hot_analysis.get("current_price"),
+                "enhanced_technical_available": True,
+                "enhanced_fundamentals_available": True,
+                "data_quality": "good",
+                "technical_analysis": {
+                    "status": "success",
+                    "summary": {
+                        "trend_indicators": 4,
+                        "oscillator_indicators": 2,
+                        "volume_indicators": 5,
+                        "momentum_indicators": 9
+                    },
+                    "indicators_available": 37,
+                    "technical_indicators": hot_analysis.get("enhanced_technical_indicators", {})
+                },
+                "fundamental_analysis": {
+                    "enhanced_fundamentals": hot_analysis.get("enhanced_fundamentals", {}),
+                    "fundamental_score": hot_analysis.get("enhanced_fundamental_score", {})
+                },
+                "summary": {
+                    "data_sources": ["database", "enhanced_technical", "enhanced_fundamentals"],
+                    "volume_avg": mtf_analysis.get("volume_analysis", {}).get("1d", {}).get("avg_volume", 0),
+                    "price_range": {
+                        "high": hot_analysis.get("current_price", 0) * 1.1,  # Approximate high
+                        "low": hot_analysis.get("current_price", 0) * 0.9,   # Approximate low
+                        "current": hot_analysis.get("current_price")
+                    }
+                }
+            }
+            
+            # Stage 2 Data: Technical and Combined Scoring
             # Get scores from the scores field in hot stock analysis
             scores = hot_analysis.get("scores", {})
             technical_score = scores.get("enhanced_technical_score", 0.0)
@@ -881,32 +684,49 @@ class StageProcessor:
             if not combined_score:
                 combined_score = 0.6 * technical_score + 0.4 * fundamental_score
             
-            # Extract data for AI analysis
-            fundamentals = self._extract_basic_fundamentals(hot_analysis)
-            technical = hot_analysis.get("technical_indicators", {}).get("enhanced_technical_indicators", {})
-            enhanced_fundamentals = hot_analysis.get("enhanced_fundamentals", {})
-            
-            logger.info(f"📊 Extracted data for {symbol}: fundamentals={len(fundamentals)} fields, technical={len(technical)} fields, enhanced_fundamentals={len(enhanced_fundamentals)} fields")
+            stage2_data = {
+                "technical_scoring": {
+                    "final_score": technical_score,
+                    "confidence": technical_confidence,
+                    "strength": technical_strength
+                },
+                "combined_scoring": {
+                    "fundamental_score": fundamental_score,
+                    "technical_score": technical_score,
+                    "combined_score": combined_score,
+                    "scoring_weights": {
+                        "technical": 0.6,
+                        "fundamental": 0.4
+                    }
+                },
+                "status": "success"
+            }
             
             return {
                 # Raw database data (keep for reference)
                 "hot_analysis": hot_analysis,
                 "mtf_analysis": mtf_analysis,
                 
-                # ✅ FIXED: Data for AI analysis (correct field names and structure)
-                "fundamentals": fundamentals,
-                "technical": technical,
-                "enhanced_fundamentals": enhanced_fundamentals,
+                # Note: Stage 1 & 2 data now integrated into simple_analysis
                 
-                # Scoring data (for reference)
+                # Direct access to components (ensure they are dictionaries, not floats)
                 "fundamental_score": scores.get("enhanced_fundamental_score", {}) if isinstance(scores.get("enhanced_fundamental_score"), dict) else {"score": scores.get("enhanced_fundamental_score", 0.0)},
                 "combined_score": combined_score,
                 "technical_confidence": technical_confidence,
                 "technical_strength": technical_strength,
                 
-                # MTF data (for reference)
+                # Technical indicators (single source of truth - use enhanced version from MTF analysis)
+                "raw_technical_data": mtf_analysis.get("technical_indicators", {}) or hot_analysis.get("technical_indicators", {}).get("enhanced_technical_indicators", {}),
+                
+                # MTF data (single source of truth - reference from mtf_analysis)
                 "mtf_scores": mtf_analysis.get("mtf_scores", {}),
                 "divergence_signals": mtf_analysis.get("divergence_signals", {})
+                
+                # REMOVED DUPLICATIONS:
+                # - enhanced_fundamentals: Available in stage1_data.fundamental_analysis.enhanced_fundamentals
+                # - trend_analysis: Available in mtf_analysis.trend_analysis
+                # - momentum_scores: Available in mtf_analysis.momentum_scores  
+                # - volume_analysis: Available in mtf_analysis.volume_analysis
             }
         except Exception as e:
             logger.error(f"Failed to fetch comprehensive database data for {symbol}: {e}")
@@ -1074,6 +894,73 @@ class StageProcessor:
         except Exception as e:
             logger.error(f"Failed to copy cached analysis to job {job_id}: {e}")
     
-   
+    def _store_database_data_in_job(self, job_id: str, db_data: Dict[str, Any]) -> bool:
+        """Store database_data in job analysis for AI stages to access"""
+        try:
+            from app.db.firestore_client import firestore_client
+            
+            # Get current job analysis data
+            current_analysis = firestore_client.get_job_analysis_data(job_id)
+            if not current_analysis:
+                logger.error(f"No job analysis data found for {job_id}")
+                return False
+            
+            # Update the stages with database_data
+            stages = current_analysis.get("stages", {})
+            stages["database_data"] = db_data
+            
+            # Update the job analysis data in database
+            success = firestore_client.update_job_analysis_data(job_id, {"stages": stages})
+            
+            if success:
+                logger.info(f"✅ Stored database_data in job {job_id} analysis")
+            else:
+                logger.error(f"❌ Failed to store database_data in job {job_id} analysis")
+            
+            return success
+            
+        except Exception as e:
+            logger.error(f"Error storing database_data in job {job_id}: {e}")
+            return False
+    
+    def _get_database_data_from_job(self, symbol: str, previous_results: Dict[str, Any]) -> Dict[str, Any]:
+        """Get database_data from job analysis for AI stages"""
+        try:
+            # First try to get from previous_results (for backward compatibility)
+            db_data = previous_results.get("database_data", {})
+            if db_data:
+                logger.debug(f"Using database_data from previous_results for {symbol}")
+                return db_data
+            
+            # If not in previous_results, get from job analysis
+            from app.db.firestore_client import firestore_client
+            
+            # Get job_id from previous_results or find it
+            job_id = previous_results.get("job_id")
+            if not job_id:
+                # Try to find job by symbol
+                jobs = firestore_client.list_jobs(limit=1)
+                for job in jobs:
+                    if job.get("symbol") == symbol:
+                        job_id = job.get("job_id")
+                        break
+            
+            if job_id:
+                current_analysis = firestore_client.get_job_analysis_data(job_id)
+                if current_analysis:
+                    stages = current_analysis.get("stages", {})
+                    db_data = stages.get("database_data", {})
+                    if db_data:
+                        logger.debug(f"Retrieved database_data from job analysis for {symbol}")
+                        return db_data
+            
+            # Fallback to empty dict
+            logger.warning(f"No database_data found for {symbol}, using empty data")
+            return {}
+            
+        except Exception as e:
+            logger.error(f"Error getting database_data for {symbol}: {e}")
+            return {}
+
 # Singleton instance
 stage_processor = StageProcessor()

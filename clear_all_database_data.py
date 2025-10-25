@@ -93,33 +93,74 @@ class CompleteDatabaseCleaner:
             logger.error(f"Failed to count documents in {collection_name}: {e}")
             return 0
     
-    def delete_collection_batch(self, collection_name: str, batch_size: int = 100) -> int:
-        """Delete all documents in a collection using batch operations"""
+    def delete_collection_batch(self, collection_name: str, batch_size: int = 50) -> int:
+        """Delete all documents in a collection using smaller batch operations to avoid transaction limits"""
         try:
             deleted_count = 0
+            batch_count = 0
             
             while True:
-                # Get a batch of documents
+                # Get a smaller batch of documents to avoid transaction size limits
                 docs = list(self.db.collection(collection_name).limit(batch_size).stream())
                 
                 if not docs:
                     break
                 
-                # Delete documents in batch
+                # Delete documents in smaller batches
                 batch = self.db.batch()
-                for doc in docs:
-                    batch.delete(doc.reference)
-                    deleted_count += 1
+                batch_operations = 0
                 
-                # Commit the batch
-                batch.commit()
-                logger.info(f"  Deleted batch of {len(docs)} documents from {collection_name}")
+                for doc in docs:
+                    try:
+                        batch.delete(doc.reference)
+                        batch_operations += 1
+                        deleted_count += 1
+                    except Exception as e:
+                        logger.warning(f"  Failed to add document {doc.id} to batch: {e}")
+                        continue
+                
+                # Commit the batch with error handling
+                try:
+                    if batch_operations > 0:
+                        batch.commit()
+                        batch_count += 1
+                        logger.info(f"  Deleted batch {batch_count} of {batch_operations} documents from {collection_name}")
+                    else:
+                        logger.warning(f"  No valid documents to delete in batch for {collection_name}")
+                        break
+                except Exception as e:
+                    if "Transaction too big" in str(e):
+                        # Reduce batch size and retry
+                        logger.warning(f"  Transaction too big, reducing batch size from {batch_size} to {batch_size//2}")
+                        batch_size = max(10, batch_size // 2)
+                        continue
+                    else:
+                        logger.error(f"  Failed to commit batch for {collection_name}: {e}")
+                        # Try individual deletions as fallback
+                        self._delete_documents_individually(docs)
+                        deleted_count += len(docs)
+                        break
+                
+                # Add small delay to avoid overwhelming Firestore
+                import time
+                time.sleep(0.1)
             
             return deleted_count
             
         except Exception as e:
             logger.error(f"Failed to delete collection {collection_name}: {e}")
             return 0
+    
+    def _delete_documents_individually(self, docs) -> int:
+        """Fallback method to delete documents one by one when batch operations fail"""
+        deleted_count = 0
+        for doc in docs:
+            try:
+                doc.reference.delete()
+                deleted_count += 1
+            except Exception as e:
+                logger.warning(f"  Failed to delete individual document {doc.id}: {e}")
+        return deleted_count
     
     def get_database_summary(self) -> Dict[str, int]:
         """Get summary of all collections and their document counts"""
@@ -206,7 +247,7 @@ class CompleteDatabaseCleaner:
         return True
     
     def clean_database(self, collections: List[str] = None) -> Dict[str, int]:
-        """Clean specified collections from the database"""
+        """Clean specified collections from the database with robust error handling"""
         if collections is None:
             collections = self.all_collections
         
@@ -225,8 +266,14 @@ class CompleteDatabaseCleaner:
                 results[collection_name] = 0
                 continue
             
-            # Delete all documents
-            deleted_count = self.delete_collection_batch(collection_name)
+            # For very large collections, use recursive deletion
+            if initial_count > 1000:
+                logger.info(f"  Large collection detected ({initial_count} docs), using recursive deletion...")
+                deleted_count = self._delete_collection_recursive(collection_name)
+            else:
+                # Use batch deletion for smaller collections
+                deleted_count = self.delete_collection_batch(collection_name)
+            
             results[collection_name] = deleted_count
             
             # Verify deletion
@@ -236,8 +283,65 @@ class CompleteDatabaseCleaner:
                 logger.info(f"  ✅ {collection_name}: Successfully deleted {deleted_count} documents")
             else:
                 logger.warning(f"  ⚠️  {collection_name}: Deleted {deleted_count} documents, {final_count} remaining")
+                
+                # If there are still documents, try individual deletion as last resort
+                if final_count > 0 and final_count < 100:
+                    logger.info(f"  Attempting individual deletion for remaining {final_count} documents...")
+                    remaining_deleted = self._delete_remaining_documents(collection_name)
+                    results[collection_name] += remaining_deleted
+                    logger.info(f"  Additional {remaining_deleted} documents deleted individually")
         
         return results
+    
+    def _delete_collection_recursive(self, collection_name: str) -> int:
+        """Recursively delete all documents in a collection using very small batches"""
+        deleted_count = 0
+        batch_size = 10  # Very small batches for large collections
+        
+        while True:
+            docs = list(self.db.collection(collection_name).limit(batch_size).stream())
+            
+            if not docs:
+                break
+            
+            # Delete in very small batches
+            batch = self.db.batch()
+            for doc in docs:
+                batch.delete(doc.reference)
+            
+            try:
+                batch.commit()
+                deleted_count += len(docs)
+                logger.info(f"  Recursive batch: Deleted {len(docs)} documents (total: {deleted_count})")
+            except Exception as e:
+                logger.warning(f"  Recursive batch failed: {e}")
+                # Fall back to individual deletion
+                for doc in docs:
+                    try:
+                        doc.reference.delete()
+                        deleted_count += 1
+                    except Exception as e2:
+                        logger.warning(f"  Individual delete failed for {doc.id}: {e2}")
+            
+            # Small delay to avoid rate limiting
+            import time
+            time.sleep(0.2)
+        
+        return deleted_count
+    
+    def _delete_remaining_documents(self, collection_name: str) -> int:
+        """Delete any remaining documents individually"""
+        deleted_count = 0
+        docs = list(self.db.collection(collection_name).stream())
+        
+        for doc in docs:
+            try:
+                doc.reference.delete()
+                deleted_count += 1
+            except Exception as e:
+                logger.warning(f"  Failed to delete remaining document {doc.id}: {e}")
+        
+        return deleted_count
     
     def create_audit_log(self, action: str, details: Dict[str, Any]) -> Optional[str]:
         """Create an audit log for the cleanup operation"""
