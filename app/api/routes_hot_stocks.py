@@ -44,16 +44,17 @@ YAHOO_SYMBOL_MAP: Dict[str, str] = {
 
 @router.get("/hot-stocks", response_model=ApiResponse)
 async def get_hot_stocks(
-    limit: int = Query(10, ge=1, le=60, description="Max number of stocks to return"),
+    limit: int = Query(100, ge=1, le=100, description="Max number of stocks to return"),
     universe_size: int = Query(50, ge=1, le=500, description="Universe size (top-N stocks)"),
     market_cap_tier: str = Query("all", description="Market cap tier: all, large_cap, mid_cap, small_cap"),
     min_momentum_pct: float = Query(0.5, description=">= momentum threshold over ~5 days"),
     min_volume_spike: float = Query(0.05, description=">= volume spike ratio vs 20D avg"),
     require_institutional: bool = Query(False, description="Require institutional activity proxy"),
     use_enhanced_indicators: bool = Query(True, description="Use enhanced technical indicators"),
-    max_pe_ratio: float = Query(50.0, description="Maximum P/E ratio allowed"),
-    min_roe: float = Query(10.0, description="Minimum ROE percentage"),
+    max_pe_ratio: float = Query(30.0, description="Maximum P/E ratio allowed"),
+    min_roe: float = Query(12.0, description="Minimum ROE percentage"),
     min_market_cap_cr: float = Query(1000.0, description="Minimum market cap in crores"),
+    max_debt_equity: float = Query(0.5, description="Maximum debt-to-equity ratio"),
 ):
     """Return hot stocks from expanded universe using enhanced signals."""
     # Initialize run tracking
@@ -93,7 +94,7 @@ async def get_hot_stocks(
         
         for m in metrics:
           
-            if get_filtered_stocks(m, min_momentum_pct, min_volume_spike, require_institutional, max_pe_ratio, min_roe, min_market_cap_cr):
+            if get_filtered_stocks(m, min_momentum_pct, min_volume_spike, require_institutional, max_pe_ratio, min_roe, min_market_cap_cr, max_debt_equity):
                 filtered.append(m)
                 logger.info(f"[hot-stocks] ✅ {m.get('symbol', 'UNKNOWN')}: ACCEPTED - passed all filters")
             else:
@@ -137,7 +138,7 @@ async def get_hot_stocks(
         # Calculate processing time
         processing_time = time.time() - start_time
         
-        _store_hot_stocks_run(top_n, run_id, run_timestamp, processing_time, triggered, universe, metrics, filtered, min_momentum_pct, min_volume_spike, require_institutional, max_pe_ratio, min_roe, min_market_cap_cr, market_cap_tier, limit, universe_size, use_enhanced_indicators)
+        _store_hot_stocks_run(top_n, run_id, run_timestamp, processing_time, triggered, universe, metrics, filtered, min_momentum_pct, min_volume_spike, require_institutional, max_pe_ratio, min_roe, min_market_cap_cr, max_debt_equity, market_cap_tier, limit, universe_size, use_enhanced_indicators)
 
         return ApiResponse(
             ok=True,

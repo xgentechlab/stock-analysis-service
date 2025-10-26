@@ -43,7 +43,8 @@ class TradeDetailsCalculator:
                 "entry": self._calculate_entry_details(symbol, action, current_price, technical_data),
                 "exit": self._calculate_exit_details(symbol, action, current_price, technical_data, risk_data),
                 "position_sizing": self._calculate_position_sizing(current_price, risk_data),
-                "risk_metrics": self._calculate_risk_metrics(current_price, technical_data, risk_data, final_score, confidence)
+                "risk_metrics": self._calculate_risk_metrics(current_price, technical_data, risk_data, final_score, confidence),
+                "quick_money_impact": self._calculate_quick_money_impact(current_price, risk_data, action)
             }
             
             return {
@@ -78,29 +79,26 @@ class TradeDetailsCalculator:
             return None
     
     def _extract_analysis_summary(self, job_analysis: Dict[str, Any], recommendation: Dict[str, Any]) -> Dict[str, Any]:
-        """Extract analysis summary from job data"""
+        """Extract analysis summary from job data - FIXED for new 4-stage system"""
         try:
             stages = job_analysis.get('stages', {})
             
             # Use final_score from recommendation (this is the correct calculated value)
             final_score = recommendation.get('final_score', 0.0)
             
-            # Get technical scoring from correct path (stages have 'data' key)
-            technical_stage = stages.get('technical_and_combined_scoring', {})
-            technical_data = technical_stage.get('data', {})
-            technical_scoring = technical_data.get('combined_scoring', {})
-            technical_score = technical_scoring.get('technical_score', 0.0)
-            # Get fundamental scoring from correct path
-            data_stage = stages.get('data_collection_and_analysis', {})
-            data_collection_data = data_stage.get('data', {})
-            fundamental_analysis = data_collection_data.get('fundamental_analysis', {})
-            fundamental_score_data = fundamental_analysis.get('fundamental_score', {})
-            fundamental_score = fundamental_score_data.get('final_score', 0.0)
+            # Get scores from simple_analysis stage (new structure)
+            simple_analysis_stage = stages.get('simple_analysis', {})
+            simple_analysis_data = simple_analysis_stage.get('data', {})
             
-            # Get risk assessment
-            risk_stage = stages.get('risk_assessment', {})
-            risk_data = risk_stage.get('data', {})
-            risk_level = risk_data.get('risk_level', 'unknown')
+            technical_score = float(simple_analysis_data.get('technical_score', 0.0))
+            fundamental_score = float(simple_analysis_data.get('fundamental_score', 0.0))
+            risk_level = simple_analysis_data.get('risk_level', 'unknown')
+            
+            # If not found in simple_analysis, try simple_decision
+            if technical_score == 0.0:
+                simple_decision_stage = stages.get('simple_decision', {})
+                simple_decision_data = simple_decision_stage.get('data', {})
+                risk_level = simple_decision_data.get('risk_level', 'unknown')
             
             return {
                 "final_score": final_score,
@@ -111,7 +109,7 @@ class TradeDetailsCalculator:
         except Exception as e:
             logger.error(f"Error extracting analysis summary: {e}")
             return {
-                "final_score": 0.0,
+                "final_score": recommendation.get('final_score', 0.0),
                 "technical_score": 0.0,
                 "fundamental_score": 0.0,
                 "risk_level": "unknown"
@@ -142,31 +140,59 @@ class TradeDetailsCalculator:
             return {}
     
     def _extract_risk_data(self, job_analysis: Dict[str, Any]) -> Dict[str, Any]:
-        """Extract risk assessment data from job analysis"""
+        """Extract risk assessment data from job analysis - FIXED for new 4-stage system"""
         try:
             stages = job_analysis.get('stages', {})
-            risk_stage = stages.get('risk_assessment', {})
-            risk_data = risk_stage.get('data', {})
             
-            # Get risk-reward ratio from forensic analysis or risk assessment
-            forensic_stage = stages.get('forensic_analysis', {})
-            forensic_data = forensic_stage.get('data', {})
-            risk_reward_calc = forensic_data.get('risk_reward_calculation', {})
-            risk_reward_ratio = risk_reward_calc.get('risk_reward_ratio', 1.0)
+            # Get risk data from simple_analysis (new structure)
+            simple_analysis_stage = stages.get('simple_analysis', {})
+            simple_analysis_data = simple_analysis_stage.get('data', {})
+            risk_reward_data = simple_analysis_data.get('risk_reward', {})
+            
+            # Extract risk-reward values
+            risk_reward_ratio = float(risk_reward_data.get('risk_reward_ratio', 1.0))
+            support_level = float(risk_reward_data.get('support_level', 0.0))
+            resistance_level = float(risk_reward_data.get('resistance_level', 0.0))
+            downside = float(risk_reward_data.get('downside', 0.0))
+            upside = float(risk_reward_data.get('upside', 0.0))
+            downside_percentage = float(risk_reward_data.get('downside_percentage', 0.0))
+            upside_percentage = float(risk_reward_data.get('upside_percentage', 0.0))
+            
+            # Get plain english summary for justifications
+            plain_english = risk_reward_data.get('plain_english_summary', {})
+            ratio_interpretation = risk_reward_data.get('ratio_interpretation', '')
+            
+            # Get risk level from simple_decision
+            risk_level = 'moderate'
+            simple_decision_stage = stages.get('simple_decision', {})
+            simple_decision_data = simple_decision_stage.get('data', {})
+            risk_level = simple_decision_data.get('risk_level', 'moderate')
             
             return {
-                "risk_level": risk_data.get('risk_level', 'moderate'),
-                "volatility": risk_data.get('volatility', 0.0),
-                "max_drawdown": risk_data.get('max_drawdown', 0.0),
-                "risk_reward_ratio": risk_reward_ratio
+                "risk_level": risk_level,
+                "risk_reward_ratio": risk_reward_ratio,
+                "support_level": support_level,
+                "resistance_level": resistance_level,
+                "downside": downside,
+                "upside": upside,
+                "downside_percentage": downside_percentage,
+                "upside_percentage": upside_percentage,
+                "ratio_interpretation": ratio_interpretation,
+                "plain_english_summary": plain_english,
+                "volatility": 0.0,
+                "max_drawdown": 0.0
             }
         except Exception as e:
             logger.error(f"Error extracting risk data: {e}")
             return {
                 "risk_level": "moderate",
+                "risk_reward_ratio": 1.0,
+                "support_level": 0.0,
+                "resistance_level": 0.0,
+                "downside": 0.0,
+                "upside": 0.0,
                 "volatility": 0.0,
-                "max_drawdown": 0.0,
-                "risk_reward_ratio": 1.0
+                "max_drawdown": 0.0
             }
     
     def _calculate_entry_details(self, symbol: str, action: str, current_price: float, technical_data: Dict[str, Any]) -> Dict[str, Any]:
@@ -214,33 +240,42 @@ class TradeDetailsCalculator:
             }
     
     def _calculate_exit_details(self, symbol: str, action: str, current_price: float, technical_data: Dict[str, Any], risk_data: Dict[str, Any]) -> Dict[str, Any]:
-        """Calculate exit details"""
+        """Calculate exit details - FIXED to use actual risk_reward data"""
         try:
             rsi = technical_data.get('rsi', 50.0)
-            atr = technical_data.get('atr', current_price * 0.02)  # Default 2% ATR
-            risk_reward_ratio = risk_data.get('risk_reward_ratio', 1.5)
             
-            if action == 'buy':
-                # For buy recommendations
-                # Target: 5-15% upside based on confidence
-                target_percentage = 0.08  # 8% default
-                target_price = current_price * (1 + target_percentage)
+            # Use actual risk_reward data from analysis
+            resistance_level = risk_data.get('resistance_level', 0.0)
+            support_level = risk_data.get('support_level', 0.0)
+            upside = risk_data.get('upside', 0.0)
+            downside = risk_data.get('downside', 0.0)
+            risk_reward_ratio = risk_data.get('risk_reward_ratio', 1.0)
+            
+            if action in ['buy', 'watch']:
+                # For buy/watch recommendations: use resistance as target, support as stop loss
+                if resistance_level > 0:
+                    target_price = resistance_level
+                else:
+                    target_price = current_price + upside if upside > 0 else current_price * 1.10
                 
-                # Stop loss: 2-5% downside or ATR-based
-                stop_percentage = max(0.03, min(0.05, atr / current_price))  # 3-5% or ATR
-                stop_loss = current_price * (1 - stop_percentage)
+                if support_level > 0:
+                    stop_loss = support_level
+                else:
+                    stop_loss = current_price - downside if downside > 0 else current_price * 0.95
                 
                 exit_conditions = f"Exit if RSI > 70 or price hits stop loss at ₹{stop_loss:.2f}"
                 
-            else:  # sell
-                # For sell recommendations
-                # Target: 5-15% downside
-                target_percentage = 0.08  # 8% default
-                target_price = current_price * (1 - target_percentage)
+            else:  # sell/avoid
+                # For sell recommendations: target support, stop at resistance
+                if support_level > 0:
+                    target_price = support_level
+                else:
+                    target_price = current_price - downside if downside > 0 else current_price * 0.92
                 
-                # Stop loss: 2-5% upside
-                stop_percentage = max(0.03, min(0.05, atr / current_price))
-                stop_loss = current_price * (1 + stop_percentage)
+                if resistance_level > 0:
+                    stop_loss = resistance_level
+                else:
+                    stop_loss = current_price + upside if upside > 0 else current_price * 1.05
                 
                 exit_conditions = f"Exit if RSI < 30 or price hits stop loss at ₹{stop_loss:.2f}"
             
@@ -248,7 +283,10 @@ class TradeDetailsCalculator:
                 "target_price": target_price,
                 "stop_loss": stop_loss,
                 "exit_conditions": exit_conditions,
-                "timeframe": "2-4 weeks"
+                "timeframe": "2-4 weeks",
+                "risk_reward_ratio": risk_reward_ratio,
+                "justification": risk_data.get('ratio_interpretation', ''),
+                "plain_english": risk_data.get('plain_english_summary', {})
             }
         except Exception as e:
             logger.error(f"Error calculating exit details: {e}")
@@ -256,29 +294,38 @@ class TradeDetailsCalculator:
                 "target_price": current_price,
                 "stop_loss": current_price * 0.95,
                 "exit_conditions": "Exit based on market conditions",
-                "timeframe": "2-4 weeks"
+                "timeframe": "2-4 weeks",
+                "risk_reward_ratio": risk_data.get('risk_reward_ratio', 1.0),
+                "justification": "",
+                "plain_english": {}
             }
     
     def _calculate_position_sizing(self, current_price: float, risk_data: Dict[str, Any]) -> Dict[str, Any]:
-        """Calculate position sizing based on capital and risk"""
+        """Calculate position sizing based on capital and risk - FIXED for expensive stocks"""
         try:
             # Calculate shares based on capital
             recommended_shares = int(self.capital_per_trade / current_price)
             
-            # Calculate actual dollar amount
-            actual_dollar_amount = recommended_shares * current_price
-            
-            # Calculate portfolio percentage (100% since it's per trade)
-            portfolio_percentage = 100.0
+            # If the stock is too expensive, provide fractional info
+            if recommended_shares == 0:
+                fractional_shares = self.capital_per_trade / current_price
+                portfolio_percentage = 100.0
+                actual_dollar_amount = self.capital_per_trade  # Use full capital
+            else:
+                fractional_shares = recommended_shares
+                portfolio_percentage = 100.0
+                actual_dollar_amount = recommended_shares * current_price
             
             # Risk per trade
             risk_per_trade = self.max_risk_percentage
             
             return {
                 "recommended_shares": recommended_shares,
+                "fractional_shares": round(fractional_shares, 4) if recommended_shares == 0 else None,
                 "portfolio_percentage": portfolio_percentage,
                 "dollar_amount": actual_dollar_amount,
-                "risk_per_trade": risk_per_trade
+                "risk_per_trade": risk_per_trade,
+                "note": f"Position size based on ₹{self.capital_per_trade:,.0f} capital" if recommended_shares == 0 else None
             }
         except Exception as e:
             logger.error(f"Error calculating position sizing: {e}")
@@ -290,30 +337,106 @@ class TradeDetailsCalculator:
             }
     
     def _calculate_risk_metrics(self, current_price: float, technical_data: Dict[str, Any], risk_data: Dict[str, Any], final_score: float, confidence: float) -> Dict[str, Any]:
-        """Calculate risk metrics"""
+        """Calculate risk metrics - FIXED to use actual data"""
         try:
-            atr = technical_data.get('atr', current_price * 0.02)
-            risk_reward_ratio = risk_data.get('risk_reward_ratio', 1.5)
+            # Use actual risk_reward_ratio from analysis
+            risk_reward_ratio = float(risk_data.get('risk_reward_ratio', 1.0))
+            downside = float(risk_data.get('downside', 0.0))
+            upside = float(risk_data.get('upside', 0.0))
             
-            # Calculate max risk amount (1% of capital)
-            max_risk_amount = self.capital_per_trade * (self.max_risk_percentage / 100)
+            # Calculate max risk amount based on downside
+            if downside > 0:
+                max_risk_amount = (downside / current_price) * self.capital_per_trade
+            else:
+                max_risk_amount = self.capital_per_trade * (self.max_risk_percentage / 100)
             
             # ATR stop distance
+            atr = technical_data.get('atr', current_price * 0.02)
             atr_stop_distance = (atr / current_price) * 100  # As percentage
             
             return {
-                "risk_reward_ratio": risk_reward_ratio,
-                "max_risk_amount": max_risk_amount,
-                "confidence_level": confidence,
-                "atr_stop_distance": atr_stop_distance
+                "risk_reward_ratio": round(risk_reward_ratio, 2),
+                "potential_upside": round(upside, 2) if upside > 0 else 0.0,
+                "potential_downside": round(downside, 2) if downside > 0 else 0.0,
+                "max_risk_amount": round(max_risk_amount, 2),
+                "confidence_level": round(confidence, 2),
+                "atr_stop_distance": round(atr_stop_distance, 2)
             }
         except Exception as e:
             logger.error(f"Error calculating risk metrics: {e}")
             return {
                 "risk_reward_ratio": 1.0,
+                "potential_upside": 0.0,
+                "potential_downside": 0.0,
                 "max_risk_amount": 200.0,
                 "confidence_level": 0.5,
                 "atr_stop_distance": 2.0
+            }
+    
+    def _calculate_quick_money_impact(self, current_price: float, risk_data: Dict[str, Any], action: str) -> Dict[str, Any]:
+        """Reuse existing money impact data from analysis"""
+        try:
+            # Try to extract from risk_reward.plain_english_summary
+            # This already has the formatted data we need
+            stages = risk_data.get('_stages', {}) if isinstance(risk_data, dict) else {}
+            
+            # For now, extract what we have in risk_data
+            upside = float(risk_data.get('upside', 0.0))
+            downside = float(risk_data.get('downside', 0.0))
+            risk_reward_ratio = float(risk_data.get('risk_reward_ratio', 1.0))
+            
+            if upside > 0 and downside > 0:
+                # Calculate for ₹10,000
+                investment_amount = 10000.0
+                shares = investment_amount / current_price
+                potential_gain = shares * upside
+                potential_loss = shares * downside
+                
+                # Get percentages from risk_data
+                upside_pct = float(risk_data.get('upside_percentage', 0.0))
+                downside_pct = float(risk_data.get('downside_percentage', 0.0))
+                
+                net_risk_reward = f"Risk ₹{potential_loss:.0f} to make ₹{potential_gain:.0f}"
+                
+                return {
+                    "investment_amount": investment_amount,
+                    "shares": round(shares, 4),
+                    "potential_gain": round(potential_gain, 2),
+                    "potential_loss": round(potential_loss, 2),
+                    "gain_percentage": round(upside_pct, 2),
+                    "loss_percentage": round(downside_pct, 2),
+                    "net_risk_reward": net_risk_reward,
+                    "risk_reward_ratio": round(risk_reward_ratio, 2),
+                    "action": action,
+                    "summary": f"For ₹10,000: {net_risk_reward}"
+                }
+            else:
+                # Fallback if data not available
+                return {
+                    "investment_amount": 10000.0,
+                    "shares": round(10000.0 / current_price, 4),
+                    "potential_gain": 0.0,
+                    "potential_loss": 0.0,
+                    "gain_percentage": 0.0,
+                    "loss_percentage": 0.0,
+                    "net_risk_reward": "Data not available",
+                    "risk_reward_ratio": 1.0,
+                    "action": action,
+                    "summary": "Unable to calculate"
+                }
+        except Exception as e:
+            logger.error(f"Error calculating quick money impact: {e}")
+            return {
+                "investment_amount": 10000.0,
+                "shares": 0.0,
+                "potential_gain": 0.0,
+                "potential_loss": 0.0,
+                "gain_percentage": 0.0,
+                "loss_percentage": 0.0,
+                "net_risk_reward": "Unable to calculate",
+                "risk_reward_ratio": 1.0,
+                "action": action,
+                "summary": "Unable to calculate money impact"
             }
     
     def _create_error_response(self, error_message: str) -> Dict[str, Any]:

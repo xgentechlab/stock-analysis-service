@@ -69,8 +69,8 @@ def route_post_scoring(
         norm_action = (action or "").lower()  # buy | watch | avoid
         rationale_text = rationale or "Final decision after enhanced analysis"
 
-        # Recommendations - BUY
-        if norm_action == "buy" and final_score >= 0.60 and confidence >= 0.60:
+        # Recommendations - BUY only (clear buy signals)
+        if norm_action == "buy" and final_score >= 0.50 and confidence >= 0.60:
             # Calculate trade details
             trade_details = _calculate_trade_details(symbol, "buy", job_id)
             
@@ -87,8 +87,8 @@ def route_post_scoring(
             })
             return
 
-        # Recommendations - SELL (avoid)
-        if norm_action == "avoid" and final_score >= 0.55 and confidence >= 0.55:
+        # Recommendations - SELL only (clear avoid signals)
+        if norm_action == "avoid" and final_score >= 0.55 and confidence >= 0.65:
             # Calculate trade details
             trade_details = _calculate_trade_details(symbol, "sell", job_id)
             
@@ -105,13 +105,15 @@ def route_post_scoring(
             })
             return
 
-        # Watchlist - watch or ambiguous
-        ambiguous = (0.45 <= final_score < 0.60) or (confidence < 0.55)
-        if norm_action == "watch" or ambiguous:
-            firestore_client.add_to_watchlist({
-                "user_id": user_id,
-                "symbol": symbol,
-            })
+        # Watchlist - everything else (WATCH, low scores, low confidence)
+        # This includes:
+        # - WATCH actions (regardless of score)
+        # - BUY/AVOID with low scores or confidence
+        # - Any ambiguous cases
+        firestore_client.add_to_watchlist({
+            "user_id": user_id,
+            "symbol": symbol,
+        })
     except Exception as e:
         logger.warning(f"post_scoring_router: routing failed for {symbol} ({job_id}): {e}")
 

@@ -420,22 +420,27 @@ class StageProcessor:
                 ai_confidence = float(fd.get("confidence", ai_confidence))
                 logger.info(f"  - fallback ai_confidence: {ai_confidence}")
         
-        # Calculate final blended score (50% combined, 30% AI confidence, 20% confidence blend)
-        final_score = 0.5 * combined_score + 0.3 * ai_confidence + 0.2 * (combined_score * ai_confidence)
+        # SIMPLIFIED FINAL SCORE: 60% combined + 40% confidence
+        # This makes the scoring more transparent and predictable
+        final_score = 0.6 * combined_score + 0.4 * ai_confidence
         
         logger.info(f"🔍 FINAL_SCORING: Calculated final_score for {symbol}")
         logger.info(f"  - final_score: {final_score}")
         logger.info(f"  - meets_threshold: {final_score >= 0.5}")
+        logger.info(f"  - calculation: 0.6 * {combined_score} + 0.4 * {ai_confidence} = {final_score}")
         
         return {
             "final_score": final_score,
             "meets_threshold": final_score >= 0.5,
             "threshold": 0.5,
-            "blending_method": "enhanced_50_30_20",
+            "blending_method": "simple_60_40",
             "blending_weights": {
-                "combined_score": 0.5,
-                "llm_confidence": 0.3,
-                "confidence_blend": 0.2
+                "combined_score": 0.6,
+                "llm_confidence": 0.4
+            },
+            "components": {
+                "combined_contribution": 0.6 * combined_score,
+                "confidence_contribution": 0.4 * ai_confidence
             }
         }
     
@@ -507,6 +512,18 @@ class StageProcessor:
         
         if not simple_analysis_result:
             raise ValueError("Simple analysis failed")
+        
+        # CRITICAL FIX: Calculate combined_score from technical_score and fundamental_score
+        # This is needed for final_scoring stage
+        fundamental_score = float(simple_analysis_result.get("fundamental_score", 0.0))
+        technical_score = float(simple_analysis_result.get("technical_score", 0.0))
+        
+        # Balanced combined_score: 50% technical + 50% fundamental
+        # This gives equal weight to both technical and fundamental analysis
+        combined_score = 0.5 * technical_score + 0.5 * fundamental_score
+        simple_analysis_result["combined_score"] = combined_score
+        
+        logger.info(f"✅ Calculated combined_score for {symbol}: {combined_score} (technical: {technical_score} * 0.5, fundamental: {fundamental_score} * 0.5)")
         
         return simple_analysis_result
     

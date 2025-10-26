@@ -6,9 +6,6 @@ logger = logging.getLogger(__name__)
 
 def _format_enhanced_technical_indicators(technical_data: Dict[str, Any]) -> Dict[str, Any]:
     """Format technical indicators for storage (matches stage processor format)"""
-    logger.info(f"🔍 FORMATTER: Processing technical data with keys: {list(technical_data.keys())}")
-    logger.info(f"🔍 FORMATTER: Key indicators - sma20: {technical_data.get('sma20')}, rsi14: {technical_data.get('rsi14')}, vwap: {technical_data.get('vwap')}")
-    
     return {
         "basic_indicators": {
             "sma_20": technical_data.get("sma20"),  # Fixed: was sma_20
@@ -102,21 +99,21 @@ def format_optimized_analysis_response(analysis: dict) -> dict:
         # 3. RISK_REWARD - All risk/reward calculations grouped
         risk_reward_data = simple_analysis.get("risk_reward", {})
         risk_reward = {
-            "ratio": simple_analysis.get("risk_reward_ratio", 0.0),
+            "ratio": risk_reward_data.get("risk_reward_ratio", 0.0),
             "current_price": risk_reward_data.get("current_price", 0.0),
-            "support_level": simple_analysis.get("support_level", 0.0),
+            "support_level": risk_reward_data.get("support_level", 0.0),
             "resistance_level": risk_reward_data.get("resistance_level", 0.0),
-            "downside_percentage": simple_analysis.get("downside_percentage", 0.0),
-            "upside_percentage": simple_analysis.get("upside_percentage", 0.0),
+            "downside_percentage": risk_reward_data.get("downside_percentage", 0.0),
+            "upside_percentage": risk_reward_data.get("upside_percentage", 0.0),
             "downside": risk_reward_data.get("downside", 0.0),
-            "upside": simple_analysis.get("upside", 0.0),
+            "upside": risk_reward_data.get("upside", 0.0),
             "ratio_interpretation": risk_reward_data.get("ratio_interpretation", ""),
             # Include full real_money_impacts object
             "real_money_impacts": risk_reward_data.get("real_money_impacts", {}),
             # Keep only ₹10,000 example for quick reference
             "example_investment": risk_reward_data.get("real_money_impacts", {}).get("₹10,000", {}),
             # Preserve plain_english_summary
-            "plain_english_summary": simple_analysis.get("plain_english_summary", {})
+            "plain_english_summary": risk_reward_data.get("plain_english_summary", {})
         }
         
         # 4. KEY_METRICS - Financial ratios in one section
@@ -147,13 +144,29 @@ def format_optimized_analysis_response(analysis: dict) -> dict:
             "decision_influence": top_drivers.get("decision_influence", "")
         }
         
-        # 6. TECHNICAL_ANALYSIS - Technical indicators grouped
+        # 6. TECHNICAL_ANALYSIS - Technical indicators grouped with conflict resolution
+        technical_score = simple_analysis.get("technical_score", 0.0)
+        overall_signal = simple_analysis.get("overall_signal", "unknown")
+        
+        # Resolve contradictory signals with explanations
+        momentum_status = "weak" if technical_score < 0.3 else "strong"
+        signal_conflict = ""
+        
+        # Check for common conflicts and explain them
+        if momentum_status == "strong" and overall_signal == "weak":
+            signal_conflict = "Momentum shows buying pressure, but overall signal weak indicates mixed confirmation"
+        elif momentum_status == "weak" and overall_signal == "strong":
+            signal_conflict = "Overall signal strong, but momentum weak suggests limited follow-through"
+        elif technical_score >= 0.5 and overall_signal == "neutral":
+            signal_conflict = "Technical score decent but no clear directional bias yet"
+        
         technical_analysis = {
-            "trend": simple_analysis.get("overall_signal", "unknown"),
-            "support_levels": [simple_analysis.get("support_level", 0.0)],
-            "resistance_levels": [risk_reward_data.get("resistance_level", 0.0)],
-            "momentum": "weak" if simple_analysis.get("technical_score", 0.0) < 0.3 else "strong",
+            "trend": overall_signal,
+            "support_levels": [risk_reward_data.get("support_level", 0.0)] if risk_reward_data.get("support_level", 0.0) > 0 else [],
+            "resistance_levels": [risk_reward_data.get("resistance_level", 0.0)] if risk_reward_data.get("resistance_level", 0.0) > 0 else [],
+            "momentum": momentum_status,
             "volume": "normal",  # Default since not explicitly provided
+            "signal_conflict": signal_conflict if signal_conflict else None,
             "the_setup": simple_analysis.get("the_setup", ""),
             "the_catalyst": simple_analysis.get("the_catalyst", ""),
             "the_confirmation": simple_analysis.get("the_confirmation", ""),

@@ -94,7 +94,7 @@ def _process_hot_stock_analysis(symbol: str, analysis_data: Dict[str, Any]) -> s
 def _store_hot_stocks_run(top_n: List[Dict[str, Any]], run_id: str, run_timestamp: datetime, processing_time: float, triggered: int, 
                          universe: List[str] = None, metrics: List[Dict[str, Any]] = None, filtered: List[Dict[str, Any]] = None,
                          min_momentum_pct: float = 0.1, min_volume_spike: float = 0.01, require_institutional: bool = False,
-                         max_pe_ratio: float = 100.0, min_roe: float = 5.0, min_market_cap_cr: float = 500.0,
+                         max_pe_ratio: float = 100.0, min_roe: float = 5.0, min_market_cap_cr: float = 500.0, max_debt_equity: float = 0.5,
                          market_cap_tier: str = "all", limit: int = 10, universe_size: int = 50, 
                          use_enhanced_indicators: bool = True) -> None:
     """Store the run in Firestore"""
@@ -148,6 +148,7 @@ def _store_hot_stocks_run(top_n: List[Dict[str, Any]], run_id: str, run_timestam
             "max_pe_ratio": max_pe_ratio,
             "min_roe": min_roe,
             "min_market_cap_cr": min_market_cap_cr,
+            "max_debt_equity": max_debt_equity,
             "market_cap_tier": market_cap_tier
         },
         selection_criteria={
