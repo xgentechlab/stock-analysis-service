@@ -1521,5 +1521,147 @@ class FirestoreClient:
             logger.error(f"Failed to delete hot stocks run {run_id}: {e}")
             return False
 
+    # ===== POSITIONS COLLECTION METHODS =====
+    
+    def create_position(self, position_data: Dict[str, Any]) -> str:
+        """Create a new position"""
+        try:
+            self._check_connection()
+            position_id = str(uuid.uuid4())
+            position_data["id"] = position_id
+            
+            if not position_data.get("createdAt"):
+                position_data["createdAt"] = datetime.now(timezone.utc).isoformat()
+            if not position_data.get("updatedAt"):
+                position_data["updatedAt"] = datetime.now(timezone.utc).isoformat()
+            
+            doc_ref = self.db.collection("positions").document(position_id)
+            doc_ref.set(position_data)
+            
+            logger.info(f"Created position: {position_id} for user: {position_data.get('userId')}")
+            return position_id
+        except Exception as e:
+            logger.error(f"Failed to create position: {e}")
+            raise
+    
+    def get_position(self, position_id: str) -> Optional[Dict[str, Any]]:
+        """Get a position by ID"""
+        try:
+            self._check_connection()
+            doc_ref = self.db.collection("positions").document(position_id)
+            doc = doc_ref.get()
+            
+            if doc.exists:
+                return doc.to_dict()
+            return None
+        except Exception as e:
+            logger.error(f"Failed to get position {position_id}: {e}")
+            raise
+    
+    def update_position(self, position_id: str, updates: Dict[str, Any]) -> bool:
+        """Update a position"""
+        try:
+            self._check_connection()
+            updates["updatedAt"] = datetime.now(timezone.utc).isoformat()
+            
+            doc_ref = self.db.collection("positions").document(position_id)
+            doc_ref.update(updates)
+            
+            logger.info(f"Updated position: {position_id}")
+            return True
+        except Exception as e:
+            logger.error(f"Failed to update position {position_id}: {e}")
+            return False
+    
+    def get_user_positions(
+        self, 
+        user_id: str, 
+        status: Optional[str] = None,
+        state: Optional[str] = None
+    ) -> List[Dict[str, Any]]:
+        """Get user's positions with optional filters"""
+        try:
+            self._check_connection()
+            query = self.db.collection("positions").where(
+                filter=FieldFilter("userId", "==", user_id)
+            )
+            
+            if status:
+                query = query.where(filter=FieldFilter("status", "==", status))
+            if state:
+                query = query.where(filter=FieldFilter("state", "==", state))
+            
+            docs = list(query.stream())
+            positions = [doc.to_dict() for doc in docs]
+            positions.sort(key=lambda x: x.get("createdAt", ""), reverse=True)
+            return positions
+        except Exception as e:
+            logger.error(f"Failed to get positions for user {user_id}: {e}")
+            raise
+    
+    def delete_position(self, position_id: str) -> bool:
+        """Delete a position"""
+        try:
+            self._check_connection()
+            doc_ref = self.db.collection("positions").document(position_id)
+            doc_ref.delete()
+            
+            logger.info(f"Deleted position: {position_id}")
+            return True
+        except Exception as e:
+            logger.error(f"Failed to delete position {position_id}: {e}")
+            return False
+
+    # ===== POSITION SNAPSHOTS COLLECTION METHODS =====
+    
+    def create_position_snapshot(self, snapshot_data: Dict[str, Any]) -> str:
+        """Create a new position snapshot"""
+        try:
+            self._check_connection()
+            snapshot_id = str(uuid.uuid4())
+            snapshot_data["id"] = snapshot_id
+            
+            if not snapshot_data.get("timestamp"):
+                snapshot_data["timestamp"] = datetime.now(timezone.utc).isoformat()
+            
+            doc_ref = self.db.collection("position_snapshots").document(snapshot_id)
+            doc_ref.set(snapshot_data)
+            
+            logger.info(f"Created position snapshot: {snapshot_id} for position: {snapshot_data.get('positionId')}")
+            return snapshot_id
+        except Exception as e:
+            logger.error(f"Failed to create position snapshot: {e}")
+            raise
+    
+    def get_position_snapshot(self, snapshot_id: str) -> Optional[Dict[str, Any]]:
+        """Get a position snapshot by ID"""
+        try:
+            self._check_connection()
+            doc_ref = self.db.collection("position_snapshots").document(snapshot_id)
+            doc = doc_ref.get()
+            
+            if doc.exists:
+                return doc.to_dict()
+            return None
+        except Exception as e:
+            logger.error(f"Failed to get position snapshot {snapshot_id}: {e}")
+            raise
+    
+    def get_snapshot_by_position_id(self, position_id: str) -> Optional[Dict[str, Any]]:
+        """Get position snapshot by positionId"""
+        try:
+            self._check_connection()
+            query = self.db.collection("position_snapshots").where(
+                filter=FieldFilter("positionId", "==", position_id)
+            )
+            docs = list(query.stream())
+            
+            if docs:
+                return docs[0].to_dict()
+            return None
+        except Exception as e:
+            logger.error(f"Failed to get snapshot for position {position_id}: {e}")
+            raise
+
 # Singleton instance
 firestore_client = FirestoreClient()

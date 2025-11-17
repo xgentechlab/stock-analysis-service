@@ -34,6 +34,7 @@ def route_post_scoring(
     confidence: float,
     rationale: Optional[str] = None,
     user_id: str = "default_user",
+    trade_details: Optional[Dict[str, Any]] = None,
 ) -> None:
     """
     Fire-and-forget style routing. Any exception is logged and swallowed to
@@ -71,8 +72,9 @@ def route_post_scoring(
 
         # Recommendations - BUY only (clear buy signals)
         if norm_action == "buy" and final_score >= 0.50 and confidence >= 0.60:
-            # Calculate trade details
-            trade_details = _calculate_trade_details(symbol, "buy", job_id)
+            # Use provided trade details or calculate them
+            if not trade_details:
+                trade_details = _calculate_trade_details(symbol, "buy", job_id)
             
             firestore_client.create_recommendation({
                 "user_id": user_id,
@@ -89,8 +91,9 @@ def route_post_scoring(
 
         # Recommendations - SELL only (clear avoid signals)
         if norm_action == "avoid" and final_score >= 0.55 and confidence >= 0.65:
-            # Calculate trade details
-            trade_details = _calculate_trade_details(symbol, "sell", job_id)
+            # Use provided trade details or calculate them
+            if not trade_details:
+                trade_details = _calculate_trade_details(symbol, "sell", job_id)
             
             firestore_client.create_recommendation({
                 "user_id": user_id,

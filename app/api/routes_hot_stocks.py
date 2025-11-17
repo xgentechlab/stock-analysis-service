@@ -16,8 +16,6 @@ from fastapi import APIRouter, HTTPException, Query
 
 from app.models.schemas import ApiResponse, HotStockSelection, HotStocksRunMetadata, HotStocksRun
 from app.services.stocks import stocks_service
-from app.models.schemas import JobCreateRequest, AnalysisType
-from app.services.analysis_trigger import analysis_trigger
 from app.db.firestore_client import firestore_client
 from app.analysis.utilities.compute_signals import _compute_signals_for_symbol
 from app.analysis.utilities.store_hot_stocks import _store_hot_stock_analysis, _store_hot_stocks_run
@@ -120,20 +118,30 @@ async def get_hot_stocks(
         # Store hot stock analysis data in database
         _store_hot_stock_analysis(top_n)
 
-        # Auto-trigger analysis for returned hot stocks (fire-and-forget)
+        # Auto-trigger agent analysis for returned hot stocks
+        symbols = [item.get("symbol") for item in top_n if item.get("symbol")]
         triggered: int = 0
-        for item in top_n:
-            sym = item.get("symbol")
+        if symbols:
             try:
-                logger.info("[hot-stocks] Triggering analysis for hot stock | symbol=%s", sym)
-                req = JobCreateRequest(symbol=sym, analysis_type=AnalysisType.ENHANCED)
-                # Use cache by default; set force_refresh=False to avoid extra cost
-                logger.info(f"Triggering analysis for {sym}")
-                analysis_trigger.fire_and_forget(req, force_refresh=True)
-                triggered += 1
-            except Exception as te:
-                logger.warning(f"[hot-stocks] Failed to trigger analysis for {sym}: {te}")
-        logger.info(f"[hot-stocks] Analysis jobs triggered: {triggered}/{len(top_n)}")
+                from app.agents.market_agent import MarketAgent
+                from app.agents.storage import agent_storage
+                
+                logger.info(f"[hot-stocks] Triggering agent analysis for {len(symbols)} stocks")
+                market_agent = MarketAgent()
+                results = market_agent.analyze_batch(symbols)
+                
+                for symbol, recommendation in results.items():
+                    try:
+                        agent_storage.store_final_recommendation(recommendation)
+                        for agent_name, agent_result in recommendation.agent_breakdown.items():
+                            agent_storage.store_agent_result(agent_result)
+                        triggered += 1
+                    except Exception as e:
+                        logger.warning(f"[hot-stocks] Failed to store results for {symbol}: {e}")
+                
+                logger.info(f"[hot-stocks] Agent analysis completed: {triggered}/{len(symbols)}")
+            except Exception as e:
+                logger.error(f"[hot-stocks] Failed to trigger agent analysis: {e}")
 
         # Calculate processing time
         processing_time = time.time() - start_time

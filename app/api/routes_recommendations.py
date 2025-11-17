@@ -235,10 +235,17 @@ async def action_recommendation(
         
         # Execute action
         if action == 'APPROVE':
-            # Add to portfolio using trade details
+            # Create position with snapshot
+            from app.services.position_service import position_service
+            position_result = position_service.convert_recommendation_to_position(
+                recommendation_id, user_id
+            )
+            
+            # Also add to portfolio for backward compatibility
             await _add_to_portfolio_from_recommendation(recommendation, user_id)
+            
             firestore_client.update_recommendation(recommendation_id, {"status": "approved"})
-            message = f"Recommendation approved and added to portfolio"
+            message = f"Recommendation approved. Position {position_result['position_id']} created with snapshot"
             
         elif action == 'REJECT':
             firestore_client.update_recommendation(recommendation_id, {"status": "rejected"})

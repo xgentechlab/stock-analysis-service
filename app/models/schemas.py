@@ -498,3 +498,127 @@ class HotStocksRunResponse(BaseModel):
     metadata: HotStocksRunMetadata
     processing_time_seconds: float
     created_at: datetime
+
+# Position Management Models
+class PositionState(str, Enum):
+    WATCHING = "WATCHING"
+    ACTIVE = "ACTIVE"
+    EXITED = "EXITED"
+
+class SetupType(str, Enum):
+    BREAKOUT = "BREAKOUT"
+    MOMENTUM = "MOMENTUM"
+    VALUE = "VALUE"
+    NEWS_DRIVEN = "NEWS_DRIVEN"
+
+class Conviction(str, Enum):
+    HIGH = "HIGH"
+    MEDIUM = "MEDIUM"
+    LOW = "LOW"
+
+class MonitoringFrequency(str, Enum):
+    FIVEMIN = "5MIN"
+    FIFTEENMIN = "15MIN"
+    ONEHOUR = "1H"
+    FOURHOUR = "4H"
+
+class PositionSnapshotTechnical(BaseModel):
+    score: float
+    rsi: Optional[float] = None
+    volumeRatio: Optional[float] = None
+    sma20: Optional[float] = None
+    sma50: Optional[float] = None
+    trend: Optional[str] = None
+    support: List[float] = Field(default_factory=list)
+    resistance: List[float] = Field(default_factory=list)
+
+class PositionSnapshotFundamental(BaseModel):
+    score: float
+    pe: Optional[float] = None
+    marketCap: Optional[float] = None
+    profitGrowth: Optional[float] = None
+
+class PositionSnapshotMarket(BaseModel):
+    nifty: Optional[float] = None
+    niftyChange: Optional[float] = None
+    vix: Optional[float] = None
+
+class PositionSnapshotAI(BaseModel):
+    overallScore: float
+    confidence: float
+    setupQuality: Optional[str] = None
+    concerns: List[str] = Field(default_factory=list)
+    strengths: List[str] = Field(default_factory=list)
+    winRate: float = 0.5
+
+class PositionSnapshot(BaseModel):
+    id: str
+    positionId: str
+    timestamp: str
+    technical: PositionSnapshotTechnical
+    fundamental: PositionSnapshotFundamental
+    market: PositionSnapshotMarket
+    ai: PositionSnapshotAI
+
+class Position(BaseModel):
+    # Identity
+    id: str
+    userId: str
+    createdAt: str
+    updatedAt: str
+    
+    # Basic data
+    symbol: str
+    entryPrice: float
+    quantity: int
+    entryDate: str
+    
+    # Targets
+    targetPrice: float
+    stopLoss: float
+    expectedTimeline: str
+    
+    # Setup (Critical for monitoring)
+    setupType: SetupType
+    keyLevel: float
+    keyLevelType: str  # "RESISTANCE" or "SUPPORT"
+    catalyst: str
+    conviction: Conviction
+    
+    # Current state
+    status: str = "ACTIVE"  # "ACTIVE" or "CLOSED"
+    state: PositionState = PositionState.WATCHING
+    currentPrice: float
+    priceUpdatedAt: str
+    unrealizedPnL: float = 0.0
+    unrealizedPnLPercent: float = 0.0
+    daysHeld: int = 0
+    
+    # Exit (when closed)
+    exitPrice: Optional[float] = None
+    exitDate: Optional[str] = None
+    exitReason: Optional[str] = None
+    realizedPnL: Optional[float] = None
+    
+    # Monitoring
+    monitoringFrequency: MonitoringFrequency
+    lastChecked: str
+    alertsCount: int = 0
+    
+    # References
+    snapshotId: str
+
+class PositionCreateRequest(BaseModel):
+    recommendation_id: str
+    user_id: str
+
+class PositionUpdateRequest(BaseModel):
+    currentPrice: Optional[float] = None
+    state: Optional[PositionState] = None
+    exitPrice: Optional[float] = None
+    exitDate: Optional[str] = None
+    exitReason: Optional[str] = None
+
+class PositionsListResponse(BaseModel):
+    positions: List[Position]
+    total: int
